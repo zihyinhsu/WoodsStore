@@ -83,7 +83,7 @@ function renderRecentOrdersTable(orders) {
 
   const typeMap = {
     'purchase': '<span class="badge badge-blue">進貨</span>',
-    'sale': '<span class="badge badge-green">銷貨</span>',
+    'sale': '<span class="badge badge-green">出貨</span>',
     'adjust': '<span class="badge badge-orange">調整</span>'
   };
 

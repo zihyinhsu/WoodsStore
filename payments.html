@@ -1,40 +1,23 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>往來對象 - 藝境裝潢材料行</title>
+  <title>收款管理 - 藝境裝潢材料行</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <style>
-    .tabs {
-      display: flex;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      border-bottom: 2px solid var(--border-color);
-      padding-bottom: 0.5rem;
+    .balance-table th, .balance-table td {
+      padding: 0.5rem;
+      font-size: 0.9rem;
     }
-    .tab-btn {
-      background: none;
-      border: none;
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      cursor: pointer;
-      padding: 0.5rem 1rem;
-      border-radius: 0;
-      transition: var(--transition);
-      border-bottom: 3px solid transparent;
-      margin-bottom: -0.5rem;
+    .balance-table .balance-amount {
+      font-weight: bold;
     }
-    .tab-btn:hover {
-      color: var(--text-main);
-    }
-    .tab-btn.active {
-      color: var(--primary);
-      border-bottom: 3px solid var(--primary);
+    .balance-table .balance-amount.positive {
+      color: var(--warning);
     }
   </style>
   <script>
@@ -44,14 +27,14 @@
   </script>
 </head>
 <body>
-    <div class="mobile-topbar">
+  <div class="mobile-topbar">
     <button class="btn-menu" aria-label="開啟選單" aria-expanded="false">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
     </button>
     <a href="index.html" class="mobile-brand">藝境裝潢材料行</a>
   </div>
 
-    <div class="sidebar-backdrop"></div>
+  <div class="sidebar-backdrop"></div>
   <nav class="sidebar" aria-label="主選單">
     <a href="index.html" class="sidebar-brand">
       <svg class="brand-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
@@ -90,26 +73,42 @@
 
   <div class="container">
     <div class="d-flex justify-between align-center mb-4">
-      <h2>往來對象</h2>
-      <button class="btn btn-primary" id="btn-add-partner">新增對象</button>
+      <h2>收款管理</h2>
+      <button class="btn btn-primary" id="btn-add-payment">新增收款</button>
+    </div>
+
+    <div class="glass-card mb-4">
+      <h3 class="mb-3">客戶應收餘額</h3>
+      <div class="table-responsive">
+        <table class="balance-table" id="balance-table">
+          <thead>
+            <tr>
+              <th>客戶編號</th>
+              <th>名稱</th>
+              <th>出貨總額</th>
+              <th>已收款</th>
+              <th>應收餘額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="5" class="empty-state">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="glass-card">
-      <div class="tabs" id="partner-tabs">
-        <button class="tab-btn active" data-type="supplier">供應商</button>
-        <button class="tab-btn" data-type="customer">客戶</button>
-      </div>
-
+      <h3 class="mb-3">收款紀錄</h3>
       <div class="table-responsive">
-        <table id="partners-table">
+        <table id="payments-table">
           <thead>
             <tr>
-              <th>編號</th>
-              <th>名稱</th>
-              <th>統編</th>
-              <th>聯絡人</th>
-              <th>電話</th>
-              <th>付款條件</th>
+              <th>日期</th>
+              <th>收款單號</th>
+              <th>客戶</th>
+              <th>金額</th>
+              <th>方式</th>
+              <th>備註</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -126,66 +125,53 @@
     </div>
   </div>
 
-  <!-- Partner Modal -->
-  <div class="modal-overlay" id="partner-modal">
+  <!-- Payment Modal -->
+  <div class="modal-overlay" id="payment-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="modal-title">新增對象</h3>
+        <h3>新增收款</h3>
         <button class="close-btn">&times;</button>
       </div>
       <div class="modal-body">
-        <form id="partner-form">
-          <input type="hidden" id="partner-id">
-          <div class="grid grid-cols-2 gap-3">
-            <div class="form-group">
-              <label>類型</label>
-              <select id="partner-type" class="form-control">
-                <option value="supplier">供應商</option>
-                <option value="customer">客戶</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>名稱 (必填)</label>
-              <input type="text" id="partner-name" class="form-control" required>
-            </div>
-            <div class="form-group">
-              <label>客戶編號</label>
-              <input type="text" id="partner-no" class="form-control" placeholder="例：1294-1">
-            </div>
-            <div class="form-group">
-              <label>統一編號</label>
-              <input type="text" id="partner-tax-id" class="form-control">
-            </div>
-            <div class="form-group">
-              <label>聯絡人</label>
-              <input type="text" id="partner-contact-name" class="form-control">
-            </div>
-            <div class="form-group">
-              <label>電話</label>
-              <input type="text" id="partner-phone" class="form-control">
-            </div>
-            <div class="form-group">
-              <label>付款條件</label>
-              <input type="text" id="partner-payment-terms" class="form-control" placeholder="例：月結30天">
-            </div>
-            <div class="form-group" style="grid-column: span 2;">
-              <label>地址</label>
-              <input type="text" id="partner-address" class="form-control">
-            </div>
-            <div class="form-group" style="grid-column: span 2;">
-              <label>備註</label>
-              <input type="text" id="partner-note" class="form-control">
-            </div>
+        <form id="payment-form">
+          <div class="form-group">
+            <label>客戶</label>
+            <select id="payment-partner" class="form-control" required>
+              <option value="">請選擇...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>收款日期</label>
+            <input type="date" id="payment-date" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label>金額</label>
+            <input type="number" id="payment-amount" class="form-control" min="1" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>收款方式</label>
+            <select id="payment-method" class="form-control" required>
+              <option value="cash">現金</option>
+              <option value="transfer">匯款</option>
+              <option value="check">支票</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>備註</label>
+            <input type="text" id="payment-note" class="form-control">
           </div>
         </form>
       </div>
       <div class="modal-footer">
         <button class="btn btn-outline close-btn">取消</button>
-        <button class="btn btn-primary" id="btn-save-partner">儲存</button>
+        <button class="btn btn-primary" id="btn-save-payment">儲存</button>
       </div>
     </div>
   </div>
 
-  <script type="module" src="js/partners.js"></script>
+  <!-- Print Area -->
+  <div id="print-area"></div>
+
+  <script type="module" src="js/payments.js"></script>
 </body>
 </html>

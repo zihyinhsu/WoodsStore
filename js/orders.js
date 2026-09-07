@@ -120,7 +120,7 @@ function renderOrdersTable() {
 
   const typeMap = {
     'purchase': '<span class="badge badge-blue">進貨</span>',
-    'sale': '<span class="badge badge-green">銷貨</span>',
+    'sale': '<span class="badge badge-green">出貨</span>',
     'adjust': '<span class="badge badge-orange">調整</span>'
   };
 
@@ -158,6 +158,9 @@ function renderOrdersTable() {
         ${order.status === 'draft' ?
           `<button class="btn btn-primary btn-confirm" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">確認</button> ` :
           ''}
+        ${order.type === 'sale' && order.status !== 'void' ?
+          `<button class="btn btn-outline btn-print-row" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button> ` :
+          ''}
         ${order.status !== 'void' ?
           `<button class="btn btn-outline btn-void" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">作廢</button>` :
           ''}
@@ -170,8 +173,30 @@ function renderOrdersTable() {
     row.addEventListener('click', (e) => {
       if (e.target.classList.contains('btn-void')) return;
       if (e.target.classList.contains('btn-confirm')) return;
+      if (e.target.classList.contains('btn-print-row')) return;
       if (e.target.classList.contains('payment-select')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
+    });
+  });
+
+  document.querySelectorAll('.btn-print-row').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const orderId = e.target.getAttribute('data-id');
+      const order = currentOrders.find(o => o.id === orderId);
+      if (!order) return;
+
+      try {
+        const { data, error } = await sb
+          .from('order_items')
+          .select('*, products(name, sku, spec, unit)')
+          .eq('order_id', orderId);
+        if (error) throw error;
+
+        printShippingOrder(order, data);
+      } catch (error) {
+        showToast('載入明細失敗: ' + error.message, 'error');
+      }
     });
   });
 
@@ -214,14 +239,21 @@ async function toggleOrderDetail(orderId, rowElement) {
   try {
     const { data, error } = await sb
       .from('order_items')
-      .select('*, products(name, sku, unit)')
+      .select('*, products(name, sku, spec, unit)')
       .eq('order_id', orderId);
     
     if (error) throw error;
 
+    const order = currentOrders.find(o => o.id === orderId);
+    const isSale = order && order.type === 'sale';
+
     const detailHtml = `
       <tr class="detail-row">
         <td colspan="9" style="padding: 1rem 2rem;">
+          <div class="d-flex justify-between align-center mb-2">
+            <h4 style="margin: 0;">單據明細</h4>
+            ${isSale ? `<button class="btn btn-outline btn-print-shipping" data-id="${orderId}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印出貨單</button>` : ''}
+          </div>
           <table class="detail-table">
             <thead>
               <tr>
@@ -249,9 +281,72 @@ async function toggleOrderDetail(orderId, rowElement) {
     `;
     
     rowElement.insertAdjacentHTML('afterend', detailHtml);
+
+    if (isSale) {
+      const printBtn = rowElement.nextElementSibling.querySelector('.btn-print-shipping');
+      if (printBtn) {
+        printBtn.addEventListener('click', () => printShippingOrder(order, data));
+      }
+    }
   } catch (error) {
     showToast('載入明細失敗: ' + error.message, 'error');
   }
+}
+
+async function printShippingOrder(order, items) {
+  const printArea = document.getElementById('print-area');
+
+  let partner = null;
+  if (order.partner_id) {
+    const { data } = await sb.from('partners').select('*').eq('id', order.partner_id).single();
+    partner = data;
+  }
+
+  printArea.innerHTML = `
+    <div class="print-doc-header">
+      <h1>藝境裝潢材料行</h1>
+      <h2>出貨單</h2>
+    </div>
+    <div class="print-info-box">
+      <div>
+        <p><strong>客戶編號：</strong>${partner?.partner_no || ''}</p>
+        <p><strong>客戶名稱：</strong>${order.partner_name || ''}</p>
+        <p><strong>統一編號：</strong>${partner?.tax_id || ''}</p>
+      </div>
+      <div>
+        <p><strong>單號：</strong>${order.order_no}</p>
+        <p><strong>出貨日期：</strong>${formatDate(order.order_date)}</p>
+        <p><strong>聯絡電話：</strong>${partner?.phone || ''}</p>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>品名</th>
+          <th>規格</th>
+          <th>數量</th>
+          <th>單位</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(item => `
+          <tr>
+            <td>${item.products.name}</td>
+            <td>${item.products.spec || ''}</td>
+            <td>${Math.abs(item.qty)}</td>
+            <td>${item.products.unit || ''}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    <div class="print-footer">
+      <div>
+        客戶簽收：<span class="signature-line"></span>
+      </div>
+    </div>
+  `;
+
+  window.print();
 }
 
 async function confirmOrder(orderId) {
@@ -325,12 +420,13 @@ function addLineItem() {
   row.innerHTML = `
     <select class="form-control line-product" required>
       <option value="">選擇商品...</option>
-      ${productsCache.map(p => `<option value="${p.id}" data-cost="${p.cost}" data-price="${p.price}" data-stock="${p.stock_qty}">${p.name} (庫存: ${p.stock_qty})</option>`).join('')}
+      ${productsCache.map(p => `<option value="${p.id}" data-cost="${p.cost}" data-price="${p.price}" data-stock="${p.stock_qty}" data-spec="${p.spec || ''}" data-unit="${p.unit || ''}">${p.name} (庫存: ${p.stock_qty})</option>`).join('')}
     </select>
+    <div class="line-spec-unit text-muted" style="font-size: 0.9rem; padding: 0.5rem;">-</div>
     <input type="number" class="form-control line-qty" min="1" value="1" required>
-    <input type="number" class="form-control line-price" min="0" step="0.01" value="0" required>
-    <input type="number" class="form-control line-discount" min="0" max="100" value="0">
-    <div class="line-subtotal" style="padding: 0.5rem; font-weight: 500;">NT$ 0</div>
+    <input type="number" class="form-control line-price price-col" min="0" step="0.01" value="0" required>
+    <input type="number" class="form-control line-discount price-col" min="0" max="100" value="0">
+    <div class="line-subtotal price-col" style="padding: 0.5rem; font-weight: 500;">NT$ 0</div>
     <button type="button" class="btn btn-outline text-danger btn-remove-line" style="padding: 0.5rem;">✕</button>
   `;
   
@@ -344,7 +440,14 @@ function addLineItem() {
   
   productSelect.addEventListener('change', (e) => {
     const option = e.target.selectedOptions[0];
-    if (!option.value) return;
+    if (!option.value) {
+      row.querySelector('.line-spec-unit').textContent = '-';
+      return;
+    }
+    
+    const spec = option.dataset.spec;
+    const unit = option.dataset.unit;
+    row.querySelector('.line-spec-unit').textContent = [spec, unit].filter(Boolean).join(' / ') || '-';
     
     const type = document.getElementById('order-type').value;
     priceInput.value = type === 'purchase' ? option.dataset.cost : option.dataset.price;
@@ -501,12 +604,29 @@ function setupEventListeners() {
     document.getElementById('order-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('order-lines').innerHTML = '';
     document.getElementById('order-total-display').textContent = 'NT$ 0';
+    
+    const type = document.getElementById('order-type').value;
+    const modal = document.getElementById('order-modal');
+    if (type === 'sale') {
+      modal.classList.add('hide-prices');
+    } else {
+      modal.classList.remove('hide-prices');
+    }
+    
     updatePartnerDropdown();
     addLineItem();
     openModal('order-modal');
   });
 
-  document.getElementById('order-type').addEventListener('change', () => {
+  document.getElementById('order-type').addEventListener('change', (e) => {
+    const type = e.target.value;
+    const modal = document.getElementById('order-modal');
+    if (type === 'sale') {
+      modal.classList.add('hide-prices');
+    } else {
+      modal.classList.remove('hide-prices');
+    }
+    
     updatePartnerDropdown();
     // Update prices for existing lines
     document.querySelectorAll('.line-product').forEach(select => {

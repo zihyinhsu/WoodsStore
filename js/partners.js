@@ -1,25 +1,40 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal } from './ui.js';
 
+const PAGE_SIZE = 20;
 let currentPartners = [];
 let currentType = 'supplier';
+let currentPage = 1;
+let totalCount = 0;
 
 async function loadPartners() {
   try {
-    const { data, error } = await sb
+    const from = (currentPage - 1) * PAGE_SIZE;
+    const { data, error, count } = await sb
       .from('partners')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('type', currentType)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;
 
     currentPartners = data;
+    totalCount = count || 0;
     renderPartnersTable(data);
+    renderPagination();
   } catch (error) {
     console.error('Error loading partners:', error);
     showToast('載入往來對象失敗: ' + error.message, 'error');
   }
+}
+
+function renderPagination() {
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
+  document.getElementById('page-info').textContent =
+    `第 ${currentPage} / ${totalPages} 頁 (共 ${totalCount} 筆)`;
+  document.getElementById('btn-prev-page').disabled = currentPage <= 1;
+  document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
 }
 
 function renderPartnersTable(partners) {
@@ -31,6 +46,7 @@ function renderPartnersTable(partners) {
 
   tbody.innerHTML = partners.map(p => `
     <tr>
+      <td>${p.partner_no || '-'}</td>
       <td>${p.name}</td>
       <td>${p.tax_id || '-'}</td>
       <td>${p.contact_name || '-'}</td>
@@ -59,6 +75,7 @@ function openEditModal(partner = null) {
     document.getElementById('modal-title').textContent = '編輯對象';
     document.getElementById('partner-id').value = partner.id;
     document.getElementById('partner-type').value = partner.type;
+    document.getElementById('partner-no').value = partner.partner_no || '';
     document.getElementById('partner-name').value = partner.name || '';
     document.getElementById('partner-tax-id').value = partner.tax_id || '';
     document.getElementById('partner-contact-name').value = partner.contact_name || '';
@@ -85,6 +102,7 @@ async function savePartner() {
   const id = document.getElementById('partner-id').value;
   const partnerData = {
     type: document.getElementById('partner-type').value,
+    partner_no: document.getElementById('partner-no').value || null,
     name: document.getElementById('partner-name').value,
     tax_id: document.getElementById('partner-tax-id').value || null,
     contact_name: document.getElementById('partner-contact-name').value || null,
@@ -123,8 +141,24 @@ document.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       e.target.classList.add('active');
       currentType = e.target.getAttribute('data-type');
+      currentPage = 1;
       loadPartners();
     });
+  });
+
+  document.getElementById('btn-prev-page').addEventListener('click', () => {
+    if (currentPage > 1) {
+      currentPage--;
+      loadPartners();
+    }
+  });
+
+  document.getElementById('btn-next-page').addEventListener('click', () => {
+    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+    if (currentPage < totalPages) {
+      currentPage++;
+      loadPartners();
+    }
   });
 
   document.getElementById('btn-add-partner').addEventListener('click', () => {

@@ -590,9 +590,77 @@ tbody tr:hover {
   .sidebar-toggle {
     display: none;
   }
-  
-  .modal-content {
-    width: 95%;
-    margin: 10px;
+}
+
+/* Print Styles */
+@media print {
+  body {
+    background: white;
+    padding: 0 !important;
+    margin: 0;
+  }
+  .sidebar, .mobile-topbar, .container, .modal-overlay, .toast-container {
+    display: none !important;
+  }
+  #print-area {
+    display: block !important;
+    width: 100%;
+    color: black;
+  }
+  #print-area table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 2rem;
+  }
+  #print-area th, #print-area td {
+    border: 1px solid black;
+    padding: 0.5rem;
+    text-align: left;
+  }
+  #print-area th {
+    background-color: #f0f0f0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #print-area h1, #print-area h2 {
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+  #print-area h1::before, #print-area h2::before {
+    display: none;
+  }
+  .print-header-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+  .print-doc-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+  .print-info-box {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    border: 1px solid black;
+    padding: 1rem;
+  }
+  .print-info-box p {
+    margin-bottom: 0.25rem;
+  }
+  .print-footer {
+    margin-top: 3rem;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .signature-line {
+    border-bottom: 1px solid black;
+    width: 200px;
+    display: inline-block;
   }
 }
+
+#print-area {
+  display: none;
+}
+
