@@ -332,6 +332,38 @@ join products pr    on pr.id = oi.product_id
 where o.type = 'sale' and o.status = 'confirmed';
 
 -- ============================================
+-- 收款 ↔ 出貨單 關聯表（一筆收款可沖多張出貨單）
+-- ============================================
+create table payment_orders (
+  id          uuid primary key default gen_random_uuid(),
+  payment_id  uuid not null references payments(id) on delete cascade,
+  order_id    uuid not null references orders(id),
+  unique (payment_id, order_id)
+);
+
+create index idx_payment_orders_payment on payment_orders (payment_id);
+create index idx_payment_orders_order   on payment_orders (order_id);
+
+-- ============================================
+-- 客戶未沖帳出貨單 View（收款表單勾選清單用）
+-- ============================================
+create view unpaid_order_view as
+select
+  o.id, o.partner_id, o.order_no, o.order_date,
+  coalesce(items.item_total, 0) - o.discount + o.tax as order_total
+from orders o
+left join (
+  select order_id, sum(subtotal) as item_total
+  from order_items
+  group by order_id
+) items on items.order_id = o.id
+where o.type = 'sale'
+  and o.status = 'confirmed'
+  and not exists (
+    select 1 from payment_orders po where po.order_id = o.id
+  );
+
+-- ============================================
 -- RLS（無登入版：開放 anon 讀寫）
 -- ⚠️ 任何持有 anon key 的人都可讀寫，僅適合內網/個人使用。
 --    未來要加登入時，把 to anon 改為 to authenticated 即可。
@@ -341,6 +373,7 @@ alter table partners    enable row level security;
 alter table orders      enable row level security;
 alter table order_items enable row level security;
 alter table payments    enable row level security;
+alter table payment_orders enable row level security;
 
 create policy "anon full access" on products
   for all to anon using (true) with check (true);
@@ -351,6 +384,8 @@ create policy "anon full access" on orders
 create policy "anon full access" on order_items
   for all to anon using (true) with check (true);
 create policy "anon full access" on payments
+  for all to anon using (true) with check (true);
+create policy "anon full access" on payment_orders
   for all to anon using (true) with check (true);
 
 -- ============================================

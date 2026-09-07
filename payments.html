@@ -142,12 +142,25 @@
             </select>
           </div>
           <div class="form-group">
+            <label>沖帳出貨單</label>
+            <div style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 0.5rem;">勾選此筆收款要核銷的出貨單（可複選）</div>
+            <div id="payment-orders-list" style="max-height: 200px; overflow-y: auto; border: 2px solid var(--border); border-radius: 0; padding: 0.5rem; margin-bottom: 0.5rem;">
+              <div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>
+            </div>
+            <div style="text-align: right; font-weight: bold; font-size: 0.9rem;">
+              已勾選金額：<span id="allocated-total" style="font-family: 'Roboto', sans-serif;">$0</span>
+            </div>
+          </div>
+          <div class="form-group">
             <label>收款日期</label>
             <input type="date" id="payment-date" class="form-control" required>
           </div>
           <div class="form-group">
             <label>金額</label>
-            <input type="number" id="payment-amount" class="form-control" min="1" step="0.01" required>
+            <div class="d-flex" style="gap: 0.5rem;">
+              <input type="number" id="payment-amount" class="form-control" min="1" step="0.01" required style="flex: 1;">
+              <button type="button" id="btn-copy-allocated" class="btn btn-outline" style="white-space: nowrap; padding: 0 0.5rem; font-size: 0.85rem;">勾選金額帶入</button>
+            </div>
           </div>
           <div class="form-group">
             <label>收款方式</label>
