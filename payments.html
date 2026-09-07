@@ -129,11 +129,12 @@
   <div class="modal-overlay" id="payment-modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>新增收款</h3>
+        <h3 id="payment-modal-title">新增收款</h3>
         <button class="close-btn">&times;</button>
       </div>
       <div class="modal-body">
         <form id="payment-form">
+          <input type="hidden" id="payment-id">
           <div class="form-group">
             <label>客戶</label>
             <select id="payment-partner" class="form-control" required>

@@ -14,6 +14,13 @@ async function loadProducts(keyword = '') {
       .order('created_at', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
+    const statusFilter = document.getElementById('status-filter').value;
+    if (statusFilter === 'active') {
+      query = query.eq('is_active', true);
+    } else if (statusFilter === 'inactive') {
+      query = query.eq('is_active', false);
+    }
+
     if (keyword) {
       query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,barcode.ilike.%${keyword}%,category.ilike.%${keyword}%`);
     }
@@ -162,6 +169,11 @@ document.addEventListener('DOMContentLoaded', () => {
     currentPage = 1;
     loadProducts(e.target.value);
   }, 300));
+
+  document.getElementById('status-filter').addEventListener('change', () => {
+    currentPage = 1;
+    loadProducts(searchInput.value);
+  });
 
   document.getElementById('btn-prev-page').addEventListener('click', () => {
     if (currentPage > 1) {

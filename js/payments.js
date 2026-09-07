@@ -106,7 +106,9 @@ function renderPaymentsTable() {
       <td>${methodMap[p.method] || p.method}</td>
       <td>${p.note || '-'}</td>
       <td>
+        <button class="btn btn-outline btn-edit-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
         <button class="btn btn-outline btn-print" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button>
+        <button class="btn btn-outline btn-delete-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: #b3261e;">刪除</button>
       </td>
     </tr>
   `).join('');
@@ -118,6 +120,60 @@ function renderPaymentsTable() {
       if (payment) printPayment(payment);
     });
   });
+
+  document.querySelectorAll('.btn-edit-payment').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const id = e.target.getAttribute('data-id');
+      const payment = currentPayments.find(p => p.id === id);
+      if (payment) openPaymentModal(payment);
+    });
+  });
+
+  document.querySelectorAll('.btn-delete-payment').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.getAttribute('data-id');
+      const payment = currentPayments.find(p => p.id === id);
+      if (!payment) return;
+
+      if (confirm(`確定要刪除收款單 ${payment.payment_no}（${formatCurrency(payment.amount)}）嗎？\n刪除後客戶應收餘額會增加。`)) {
+        await deletePayment(id);
+      }
+    });
+  });
+}
+
+function openPaymentModal(payment = null) {
+  const form = document.getElementById('payment-form');
+  form.reset();
+  document.getElementById('payment-date').value = new Date().toISOString().split('T')[0];
+
+  if (payment) {
+    document.getElementById('payment-modal-title').textContent = '編輯收款';
+    document.getElementById('payment-id').value = payment.id;
+    document.getElementById('payment-partner').value = payment.partner_id;
+    document.getElementById('payment-date').value = payment.payment_date;
+    document.getElementById('payment-amount').value = payment.amount;
+    document.getElementById('payment-method').value = payment.method;
+    document.getElementById('payment-note').value = payment.note || '';
+  } else {
+    document.getElementById('payment-modal-title').textContent = '新增收款';
+    document.getElementById('payment-id').value = '';
+  }
+
+  openModal('payment-modal');
+}
+
+async function deletePayment(id) {
+  try {
+    const { error } = await sb.from('payments').delete().eq('id', id);
+    if (error) throw error;
+
+    showToast('收款紀錄已刪除', 'success');
+    await Promise.all([loadBalances(), loadPayments()]);
+  } catch (error) {
+    console.error('Error deleting payment:', error);
+    showToast('刪除失敗: ' + error.message, 'error');
+  }
 }
 
 function printPayment(payment) {
@@ -176,36 +232,38 @@ async function savePayment() {
     return;
   }
   
-  const partnerId = document.getElementById('payment-partner').value;
-  const date = document.getElementById('payment-date').value;
-  const amount = parseFloat(document.getElementById('payment-amount').value);
-  const method = document.getElementById('payment-method').value;
-  const note = document.getElementById('payment-note').value;
-  
-  // Generate payment_no: PAY-YYYYMMDDHHMMSS-XXXX
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
-  const hh = String(now.getHours()).padStart(2, '0');
-  const min = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
-  const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
-  const paymentNo = `PAY-${yyyy}${mm}${dd}${hh}${min}${ss}-${randomHex}`;
-  
+  const id = document.getElementById('payment-id').value;
+  const paymentData = {
+    partner_id: document.getElementById('payment-partner').value,
+    payment_date: document.getElementById('payment-date').value,
+    amount: parseFloat(document.getElementById('payment-amount').value),
+    method: document.getElementById('payment-method').value,
+    note: document.getElementById('payment-note').value || null
+  };
+
   try {
-    const { error } = await sb.from('payments').insert([{
-      payment_no: paymentNo,
-      partner_id: partnerId,
-      payment_date: date,
-      amount: amount,
-      method: method,
-      note: note || null
-    }]);
-    
+    let error;
+    if (id) {
+      const res = await sb.from('payments').update(paymentData).eq('id', id);
+      error = res.error;
+    } else {
+      const now = new Date();
+      const stamp = now.getFullYear()
+        + String(now.getMonth() + 1).padStart(2, '0')
+        + String(now.getDate()).padStart(2, '0')
+        + String(now.getHours()).padStart(2, '0')
+        + String(now.getMinutes()).padStart(2, '0')
+        + String(now.getSeconds()).padStart(2, '0');
+      const randomHex = Math.floor(Math.random() * 65536).toString(16).padStart(4, '0').toUpperCase();
+      paymentData.payment_no = `PAY-${stamp}-${randomHex}`;
+
+      const res = await sb.from('payments').insert([paymentData]);
+      error = res.error;
+    }
+
     if (error) throw error;
-    
-    showToast('收款紀錄已儲存', 'success');
+
+    showToast(id ? '收款紀錄已更新' : '收款紀錄已儲存', 'success');
     closeModal('payment-modal');
     
     // Reload data
@@ -237,9 +295,7 @@ function setupEventListeners() {
   });
   
   document.getElementById('btn-add-payment').addEventListener('click', () => {
-    document.getElementById('payment-form').reset();
-    document.getElementById('payment-date').value = new Date().toISOString().split('T')[0];
-    openModal('payment-modal');
+    openPaymentModal();
   });
   
   document.getElementById('btn-save-payment').addEventListener('click', savePayment);

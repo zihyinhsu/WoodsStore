@@ -119,12 +119,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Close on overlay click
-  document.querySelectorAll('.modal-overlay').forEach(modal => {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('active');
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const openedModal = document.querySelector('.modal-overlay.active');
+      if (openedModal) {
+        openedModal.classList.remove('active');
       }
-    });
+    }
   });
 });
