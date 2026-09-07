@@ -1,0 +1,171 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商品管理 - 藝境裝潢材料行</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    if (localStorage.getItem('sidebar-collapsed') === 'true') {
+      document.documentElement.classList.add('sidebar-collapsed');
+    }
+  </script>
+</head>
+<body>
+    <div class="mobile-topbar">
+    <button class="btn-menu" aria-label="開啟選單" aria-expanded="false">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+    </button>
+    <a href="index.html" class="mobile-brand">藝境裝潢材料行</a>
+  </div>
+
+    <div class="sidebar-backdrop"></div>
+  <nav class="sidebar" aria-label="主選單">
+    <a href="index.html" class="sidebar-brand">
+      <svg class="brand-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+      <span class="brand-text">藝境裝潢材料行</span>
+    </a>
+    <div class="sidebar-nav">
+      <a href="index.html" class="nav-item" data-page="index.html" title="總覽">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span class="nav-label">總覽</span>
+      </a>
+      <a href="products.html" class="nav-item" data-page="products.html" title="商品管理">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <span class="nav-label">商品管理</span>
+      </a>
+      <a href="orders.html" class="nav-item" data-page="orders.html" title="單據管理">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span class="nav-label">單據管理</span>
+      </a>
+      <a href="partners.html" class="nav-item" data-page="partners.html" title="往來對象">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span class="nav-label">往來對象</span>
+      </a>
+    </div>
+    <button class="sidebar-toggle" aria-label="收合側邊欄" aria-expanded="true">
+      <svg class="chevron-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+  </nav>
+
+  <div class="container">
+    <div class="d-flex justify-between align-center mb-4">
+      <h2>商品管理</h2>
+      <button class="btn btn-primary" id="btn-add-product">新增商品</button>
+    </div>
+
+    <div class="glass-card mb-4">
+      <div class="form-group mb-0">
+        <input type="text" id="search-input" class="form-control" placeholder="搜尋商品名稱、編號、條碼或分類...">
+      </div>
+    </div>
+
+    <div class="glass-card">
+      <div class="table-responsive">
+        <table id="products-table">
+          <thead>
+            <tr>
+              <th>編號</th>
+              <th>商品名稱</th>
+              <th>分類</th>
+              <th>庫存量</th>
+              <th>進價</th>
+              <th>售價</th>
+              <th>狀態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="8" class="empty-state">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <button class="btn btn-outline" id="btn-prev-page" disabled>上一頁</button>
+        <span id="page-info">第 1 頁</span>
+        <button class="btn btn-outline" id="btn-next-page" disabled>下一頁</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Product Modal -->
+  <div class="modal-overlay" id="product-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">新增商品</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="product-form">
+          <input type="hidden" id="product-id">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="form-group">
+              <label>編號 (必填)</label>
+              <input type="text" id="product-sku" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label>條碼</label>
+              <input type="text" id="product-barcode" class="form-control">
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>商品名稱 (必填)</label>
+              <input type="text" id="product-name" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label>分類</label>
+              <input type="text" id="product-category" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>單位</label>
+              <input type="text" id="product-unit" class="form-control" value="個">
+            </div>
+            <div class="form-group">
+              <label>進價</label>
+              <input type="number" id="product-cost" class="form-control" min="0" step="0.01" value="0">
+            </div>
+            <div class="form-group">
+              <label>售價</label>
+              <input type="number" id="product-price" class="form-control" min="0" step="0.01" value="0">
+            </div>
+            <div class="form-group">
+              <label>安全庫存</label>
+              <input type="number" id="product-safety-stock" class="form-control" min="0" value="0">
+            </div>
+            <div class="form-group">
+              <label>儲位</label>
+              <input type="text" id="product-location" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>稅別</label>
+              <select id="product-tax-type" class="form-control">
+                <option value="taxable">應稅</option>
+                <option value="free">免稅</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>狀態</label>
+              <select id="product-is-active" class="form-control">
+                <option value="true">啟用</option>
+                <option value="false">停用</option>
+              </select>
+            </div>
+            <div class="form-group" style="grid-column: span 2;">
+              <label>規格</label>
+              <input type="text" id="product-spec" class="form-control">
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline close-btn">取消</button>
+        <button class="btn btn-primary" id="btn-save-product">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/products.js"></script>
+</body>
+</html>

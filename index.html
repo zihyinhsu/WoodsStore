@@ -1,0 +1,135 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>總覽 - 藝境裝潢材料行</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .stat-card {
+      text-align: center;
+      padding: 2rem 1rem;
+    }
+    .stat-value {
+      font-size: 3rem;
+      color: var(--primary);
+      font-family: 'Bebas Neue', sans-serif;
+      margin-top: 0.5rem;
+      letter-spacing: 1px;
+    }
+    .stat-label {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+  </style>
+  <script>
+    if (localStorage.getItem('sidebar-collapsed') === 'true') {
+      document.documentElement.classList.add('sidebar-collapsed');
+    }
+  </script>
+</head>
+<body>
+    <div class="mobile-topbar">
+    <button class="btn-menu" aria-label="開啟選單" aria-expanded="false">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+    </button>
+    <a href="index.html" class="mobile-brand">藝境裝潢材料行</a>
+  </div>
+
+    <div class="sidebar-backdrop"></div>
+  <nav class="sidebar" aria-label="主選單">
+    <a href="index.html" class="sidebar-brand">
+      <svg class="brand-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+      <span class="brand-text">藝境裝潢材料行</span>
+    </a>
+    <div class="sidebar-nav">
+      <a href="index.html" class="nav-item" data-page="index.html" title="總覽">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        <span class="nav-label">總覽</span>
+      </a>
+      <a href="products.html" class="nav-item" data-page="products.html" title="商品管理">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <span class="nav-label">商品管理</span>
+      </a>
+      <a href="orders.html" class="nav-item" data-page="orders.html" title="單據管理">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+        <span class="nav-label">單據管理</span>
+      </a>
+      <a href="partners.html" class="nav-item" data-page="partners.html" title="往來對象">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span class="nav-label">往來對象</span>
+      </a>
+    </div>
+    <button class="sidebar-toggle" aria-label="收合側邊欄" aria-expanded="true">
+      <svg class="chevron-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+  </nav>
+
+  <div class="container">
+    <h2 class="mb-4">系統總覽</h2>
+    
+    <div class="grid grid-cols-4 gap-4 mb-4">
+      <div class="glass-card stat-card">
+        <div class="stat-label">商品總數</div>
+        <div class="stat-value" id="stat-total-products">-</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-label">庫存不足</div>
+        <div class="stat-value text-danger" id="stat-low-stock">-</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-label">今日銷貨金額</div>
+        <div class="stat-value text-success" id="stat-today-sales">-</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-label">近期單據數 (30天)</div>
+        <div class="stat-value" id="stat-recent-orders">-</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="glass-card">
+        <h3 class="mb-3">庫存不足警告</h3>
+        <div class="table-responsive">
+          <table id="low-stock-table">
+            <thead>
+              <tr>
+                <th>商品名稱</th>
+                <th>目前庫存</th>
+                <th>安全庫存</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="3" class="empty-state">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="glass-card">
+        <h3 class="mb-3">最新單據</h3>
+        <div class="table-responsive">
+          <table id="recent-orders-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>單號</th>
+                <th>類型</th>
+                <th>金額</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="4" class="empty-state">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>
