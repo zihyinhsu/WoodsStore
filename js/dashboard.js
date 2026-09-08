@@ -135,7 +135,7 @@ function appendRecentOrders(orders, isFirstBatch) {
   tbody.querySelectorAll('.order-row:not([data-bound])').forEach(row => {
     row.setAttribute('data-bound', '1');
     row.addEventListener('click', () => {
-      window.location.href = `orders.html#q=${encodeURIComponent(row.getAttribute('data-order-no'))}`;
+      window.location.href = `orders.html#q=${encodeURIComponent(row.getAttribute('data-order-no'))}&status=all`;
     });
   });
 }

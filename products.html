@@ -8,6 +8,102 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* Product Row Expansion Styles */
+    #products-table tbody tr.clickable-row {
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    #products-table tbody tr.clickable-row:hover {
+      background-color: rgba(0, 0, 0, 0.02);
+    }
+    #cost-modal .modal-content {
+      max-width: 860px;
+      width: 92%;
+    }
+    .cost-analysis-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .cost-analysis-header h4 {
+      margin: 0;
+      font-size: 1.25rem;
+      color: #1f1f1f;
+    }
+    .date-controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .date-controls input[type="date"] {
+      padding: 0.25rem 0.5rem;
+      border: 2px solid #1f1f1f;
+      border-radius: 0;
+      background: #fff;
+      font-family: 'Roboto', sans-serif;
+    }
+    .stat-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+    .stat-card {
+      background: #f5f4f1;
+      border: 2px solid #1f1f1f;
+      padding: 1rem;
+      border-radius: 0;
+      box-shadow: 2px 2px 0 rgba(0,0,0,0.1);
+    }
+    .stat-card-title {
+      font-size: 0.875rem;
+      color: #666;
+      margin-bottom: 0.5rem;
+      font-weight: 600;
+    }
+    .stat-card-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2rem;
+      color: #1f1f1f;
+      line-height: 1;
+      margin-bottom: 0.25rem;
+    }
+    .stat-card-value.negative {
+      color: #dc3545;
+    }
+    .stat-card-subtitle {
+      font-size: 0.75rem;
+      color: #888;
+    }
+    .records-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #1f1f1f;
+      background: #fff;
+    }
+    .records-table th, .records-table td {
+      padding: 0.75rem;
+      border-bottom: 1px solid #e0e0e0;
+      text-align: left;
+    }
+    .records-table th {
+      background: #f5f4f1;
+      font-weight: 600;
+      border-bottom: 2px solid #1f1f1f;
+    }
+    .records-table tr.adjust-row {
+      background-color: #f8f9fa;
+      color: #6c757d;
+    }
+    .records-table td.num-col {
+      font-family: 'Roboto', sans-serif;
+    }
+  </style>
   <script>
     if (localStorage.getItem('sidebar-collapsed') === 'true') {
       document.documentElement.classList.add('sidebar-collapsed');
@@ -179,6 +275,33 @@
       <div class="modal-footer">
         <button class="btn btn-outline close-btn">取消</button>
         <button class="btn btn-primary" id="btn-save-product">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Cost Analysis Modal -->
+  <div class="modal-overlay" id="cost-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="cost-modal-title">進出貨成本分析</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="cost-analysis-header">
+          <div class="date-controls">
+            <input type="date" class="cost-date-from">
+            <span>至</span>
+            <input type="date" class="cost-date-to">
+            <button class="btn btn-outline btn-quick-date" data-range="thisMonth">本月</button>
+            <button class="btn btn-outline btn-quick-date" data-range="lastMonth">上月</button>
+            <button class="btn btn-outline btn-quick-date" data-range="last30Days">近30天</button>
+            <button class="btn btn-outline btn-quick-date" data-range="all">累計</button>
+          </div>
+        </div>
+        <div class="cost-analysis-content">載入中...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline close-btn">關閉</button>
       </div>
     </div>
   </div>

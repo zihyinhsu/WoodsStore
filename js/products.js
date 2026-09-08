@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, debounce, showToast, openModal, closeModal } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal } from './ui.js';
 
 const PAGE_SIZE = 20;
 let currentProducts = [];
@@ -54,7 +54,7 @@ function renderProductsTable(products) {
   }
 
   tbody.innerHTML = products.map(p => `
-    <tr>
+    <tr class="clickable-row" data-id="${p.id}">
       <td>${p.sku}</td>
       <td>
         <div>${p.name}</div>
@@ -82,11 +82,239 @@ function renderProductsTable(products) {
   // Attach edit events
   document.querySelectorAll('.btn-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const id = e.target.getAttribute('data-id');
       const product = currentProducts.find(p => p.id === id);
       if (product) openEditModal(product);
     });
   });
+
+  document.querySelectorAll('.clickable-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-edit') || e.target.closest('.badge')) return;
+      openCostModal(row.getAttribute('data-id'));
+    });
+  });
+}
+
+let costModalProductId = null;
+
+function openCostModal(productId) {
+  costModalProductId = productId;
+
+  const product = currentProducts.find(p => p.id === productId);
+  document.getElementById('cost-modal-title').textContent =
+    `進出貨成本分析 - ${product ? product.name : ''}`;
+
+  const modal = document.getElementById('cost-modal');
+  const today = new Date();
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(today.getDate() - 30);
+
+  const fromInput = modal.querySelector('.cost-date-from');
+  const toInput = modal.querySelector('.cost-date-to');
+  fromInput.value = thirtyDaysAgo.toISOString().split('T')[0];
+  toInput.value = today.toISOString().split('T')[0];
+
+  openModal('cost-modal');
+  loadCostAnalysisData(productId, modal, fromInput.value, toInput.value);
+}
+
+function setupCostModalControls() {
+  const modal = document.getElementById('cost-modal');
+  const fromInput = modal.querySelector('.cost-date-from');
+  const toInput = modal.querySelector('.cost-date-to');
+
+  const reloadData = () => {
+    if (!costModalProductId) return;
+    loadCostAnalysisData(costModalProductId, modal, fromInput.value, toInput.value);
+  };
+
+  fromInput.addEventListener('change', reloadData);
+  toInput.addEventListener('change', reloadData);
+
+  modal.querySelectorAll('.btn-quick-date').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const range = e.target.dataset.range;
+      const t = new Date();
+      let f = new Date();
+      let end = new Date();
+
+      if (range === 'thisMonth') {
+        f = new Date(t.getFullYear(), t.getMonth(), 1);
+        end = t;
+      } else if (range === 'lastMonth') {
+        f = new Date(t.getFullYear(), t.getMonth() - 1, 1);
+        end = new Date(t.getFullYear(), t.getMonth(), 0);
+      } else if (range === 'last30Days') {
+        f.setDate(t.getDate() - 30);
+        end = t;
+      } else if (range === 'all') {
+        fromInput.value = '';
+        toInput.value = '';
+        reloadData();
+        return;
+      }
+
+      fromInput.value = f.toISOString().split('T')[0];
+      toInput.value = end.toISOString().split('T')[0];
+      reloadData();
+    });
+  });
+}
+
+async function loadCostAnalysisData(productId, container, from, to) {
+  const contentDiv = container.querySelector('.cost-analysis-content');
+  contentDiv.innerHTML = '載入中...';
+  
+  try {
+    let q = sb.from('order_items')
+      .select('qty, unit_price, discount, subtotal, orders!inner(order_no, order_date, type, status)')
+      .eq('product_id', productId)
+      .eq('orders.status', 'confirmed')
+      .order('order_date', { referencedTable: 'orders', ascending: false });
+      
+    if (from) q = q.gte('orders.order_date', from);
+    if (to)   q = q.lte('orders.order_date', to);
+    
+    const { data, error } = await q;
+    if (error) throw error;
+    
+    const product = currentProducts.find(p => p.id === productId);
+    const unit = product ? product.unit : '個';
+    
+    let purchaseQty = 0;
+    let purchaseAmount = 0;
+    let saleQty = 0;
+    let saleAmount = 0;
+    
+    data.forEach(item => {
+      if (item.orders.type === 'purchase') {
+        purchaseQty += item.qty;
+        purchaseAmount += item.subtotal;
+      } else if (item.orders.type === 'sale') {
+        saleQty += Math.abs(item.qty);
+        saleAmount += item.subtotal;
+      }
+    });
+    
+    const avgPurchaseCost = purchaseQty > 0 ? purchaseAmount / purchaseQty : 0;
+    const avgSalePrice = saleQty > 0 ? saleAmount / saleQty : 0;
+    
+    let grossProfit = '--';
+    let grossMargin = '--';
+    let marginClass = '';
+    
+    if (purchaseQty > 0 && saleQty > 0) {
+      const profit = saleAmount - (avgPurchaseCost * saleQty);
+      grossProfit = formatCurrency(profit);
+      
+      if (saleAmount > 0) {
+        const margin = (profit / saleAmount) * 100;
+        grossMargin = margin.toFixed(1) + '%';
+        if (margin < 0) {
+          marginClass = 'negative';
+          grossMargin = '▲' + grossMargin;
+        }
+      }
+    }
+    
+    const displayData = data.slice(0, 50);
+    const hasMore = data.length > 50;
+    
+    const typeMap = {
+      'purchase': '<span class="badge badge-blue">進貨</span>',
+      'sale': '<span class="badge badge-green">出貨</span>',
+      'adjust': '<span class="badge badge-gray">調整</span>'
+    };
+    
+    let recordsHtml = '';
+    if (data.length === 0) {
+      recordsHtml = '<div class="empty-state" style="padding: 2rem; border: 2px solid #1f1f1f; text-align: center; color: #666;">此區間無進出紀錄</div>';
+    } else {
+      const rowsHtml = displayData.map(item => {
+        const isAdjust = item.orders.type === 'adjust';
+        const isSale = item.orders.type === 'sale';
+        const isPurchase = item.orders.type === 'purchase';
+        
+        let qtyStr = item.qty;
+        if (isPurchase) qtyStr = '+' + item.qty;
+        if (isSale) qtyStr = '-' + Math.abs(item.qty);
+        if (isAdjust) qtyStr = item.qty > 0 ? '+' + item.qty : item.qty;
+        
+        let priceStr = '--';
+        let amountStr = '--';
+        
+        if (!isAdjust) {
+          const effectivePrice = Math.abs(item.qty) > 0 ? item.subtotal / Math.abs(item.qty) : 0;
+          priceStr = formatCurrency(effectivePrice);
+          amountStr = formatCurrency(item.subtotal);
+        }
+        
+        return `
+          <tr class="${isAdjust ? 'adjust-row' : ''}">
+            <td>${formatDate(item.orders.order_date)}</td>
+            <td>${item.orders.order_no}</td>
+            <td>${typeMap[item.orders.type]}</td>
+            <td class="num-col">${qtyStr}</td>
+            <td class="num-col">${priceStr}</td>
+            <td class="num-col">${amountStr}</td>
+          </tr>
+        `;
+      }).join('');
+      
+      recordsHtml = `
+        <table class="records-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>單號</th>
+              <th>類型</th>
+              <th>數量</th>
+              <th>單價</th>
+              <th>金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+    
+    contentDiv.innerHTML = `
+      <div class="stat-cards">
+        <div class="stat-card">
+          <div class="stat-card-title">平均進貨成本</div>
+          <div class="stat-card-value">${purchaseQty > 0 ? formatCurrency(avgPurchaseCost) : '--'}</div>
+          <div class="stat-card-subtitle">進${purchaseQty}${unit} ${formatCurrency(purchaseAmount)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title">平均出貨單價</div>
+          <div class="stat-card-value">${saleQty > 0 ? formatCurrency(avgSalePrice) : '--'}</div>
+          <div class="stat-card-subtitle">出${saleQty}${unit} ${formatCurrency(saleAmount)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title">毛利</div>
+          <div class="stat-card-value">${grossProfit}</div>
+          <div class="stat-card-subtitle">出貨總額 - (平均進貨成本 × 出貨量)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-title">毛利率</div>
+          <div class="stat-card-value ${marginClass}">${grossMargin}</div>
+          <div class="stat-card-subtitle">毛利 ÷ 出貨總額</div>
+        </div>
+      </div>
+      
+      <h5 style="margin: 0 0 1rem 0; color: #1f1f1f; font-size: 1rem;">區間內進出紀錄 ${hasMore ? '<span class="text-muted" style="font-size: 0.8rem; font-weight: normal;">(僅顯示前 50 筆)</span>' : ''}</h5>
+      ${recordsHtml}
+    `;
+    
+  } catch (error) {
+    console.error('Error loading cost analysis:', error);
+    contentDiv.innerHTML = `<div class="text-danger">載入失敗: ${error.message}</div>`;
+    showToast('載入成本分析失敗: ' + error.message, 'error');
+  }
 }
 
 function openEditModal(product = null) {
@@ -173,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   loadProducts(urlSearch || '');
+  setupCostModalControls();
 
   searchInput.addEventListener('input', debounce((e) => {
     currentPage = 1;

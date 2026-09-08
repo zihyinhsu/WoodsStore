@@ -27,13 +27,13 @@ async function init() {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(today.getDate() - 30);
   
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+
   searchDateTo.value = urlParams.get('to') || today.toISOString().split('T')[0];
   searchDateFrom.value = urlParams.get('from') || thirtyDaysAgo.toISOString().split('T')[0];
   searchType.value = urlParams.get('type') || 'all';
-  searchStatus.value = urlParams.get('status') || 'active';
-  const hashMatch = window.location.hash.match(/^#q=(.+)$/);
-  searchKeyword.value = urlParams.get('q')
-    || (hashMatch ? decodeURIComponent(hashMatch[1]) : '');
+  searchStatus.value = urlParams.get('status') || hashParams.get('status') || 'active';
+  searchKeyword.value = urlParams.get('q') || hashParams.get('q') || '';
   currentPage = parseInt(urlParams.get('page')) || 1;
   
   document.getElementById('order-date').value = today.toISOString().split('T')[0];
