@@ -130,10 +130,7 @@ html.sidebar-collapsed .sidebar {
   flex-shrink: 0;
 }
 
-html.sidebar-collapsed .brand-text {
-  opacity: 0;
-  pointer-events: none;
-}
+
 
 .sidebar-nav {
   flex: 1;
@@ -155,6 +152,10 @@ html.sidebar-collapsed .brand-text {
   white-space: nowrap;
 }
 
+.nav-item svg {
+  flex-shrink: 0;
+}
+
 .nav-item:hover {
   background: rgba(31, 31, 31, 0.05);
 }
@@ -171,8 +172,23 @@ html.sidebar-collapsed .brand-text {
 }
 
 html.sidebar-collapsed .nav-label {
-  opacity: 0;
-  pointer-events: none;
+  display: none;
+}
+
+html.sidebar-collapsed .sidebar .nav-item {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+html.sidebar-collapsed .sidebar .sidebar-brand {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+html.sidebar-collapsed .brand-text {
+  display: none;
 }
 
 .sidebar-toggle {
@@ -572,8 +588,14 @@ tbody tr:hover {
   
   html.sidebar-collapsed .brand-text,
   html.sidebar-collapsed .nav-label {
-    opacity: 1;
-    pointer-events: auto;
+    display: inline;
+  }
+
+  html.sidebar-collapsed .sidebar .nav-item,
+  html.sidebar-collapsed .sidebar .sidebar-brand {
+    justify-content: flex-start;
+    padding-left: 18px;
+    padding-right: 18px;
   }
   
   html.sidebar-collapsed .chevron-icon {

@@ -24,6 +24,59 @@
       color: var(--text-muted);
       font-weight: 600;
     }
+    a.stat-link {
+      text-decoration: none;
+      color: inherit;
+      display: block;
+      cursor: pointer;
+    }
+    a.stat-link:hover {
+      transform: translate(-1px, -1px);
+      box-shadow: 5px 5px 0 rgba(31, 31, 31, 0.2);
+    }
+    .product-link {
+      color: var(--primary);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .product-link:hover {
+      text-decoration: underline;
+    }
+    #recent-orders-scroll {
+      height: 340px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-gutter: stable;
+    }
+    #recent-orders-scroll th, #recent-orders-scroll td {
+      padding: 0.75rem 0.5rem;
+    }
+    #recent-orders-scroll td:nth-child(2) {
+      font-size: 0.8rem;
+      word-break: break-all;
+      max-width: 150px;
+    }
+    #recent-orders-scroll td:nth-child(3) .badge {
+      white-space: nowrap;
+    }
+    #recent-orders-scroll thead th {
+      position: sticky;
+      top: 0;
+      background: #f5f4f1;
+      z-index: 1;
+    }
+    .scroll-loading {
+      text-align: center;
+      padding: 0.5rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+    .order-row {
+      cursor: pointer;
+    }
+    .order-row:hover {
+      background: rgba(192, 83, 31, 0.06);
+    }
   </style>
   <script>
     if (localStorage.getItem('sidebar-collapsed') === 'true') {
@@ -80,10 +133,10 @@
     <h2 class="mb-4">系統總覽</h2>
     
     <div class="grid grid-cols-4 gap-4 mb-4">
-      <div class="glass-card stat-card">
+      <a href="products.html" class="glass-card stat-card stat-link">
         <div class="stat-label">商品總數</div>
         <div class="stat-value" id="stat-total-products">-</div>
-      </div>
+      </a>
       <div class="glass-card stat-card">
         <div class="stat-label">庫存不足</div>
         <div class="stat-value text-danger" id="stat-low-stock">-</div>
@@ -119,7 +172,7 @@
 
       <div class="glass-card">
         <h3 class="mb-3">最新單據</h3>
-        <div class="table-responsive">
+        <div class="table-responsive" id="recent-orders-scroll">
           <table id="recent-orders-table">
             <thead>
               <tr>

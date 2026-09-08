@@ -31,7 +31,9 @@ async function init() {
   searchDateFrom.value = urlParams.get('from') || thirtyDaysAgo.toISOString().split('T')[0];
   searchType.value = urlParams.get('type') || 'all';
   searchStatus.value = urlParams.get('status') || 'active';
-  searchKeyword.value = urlParams.get('q') || '';
+  const hashMatch = window.location.hash.match(/^#q=(.+)$/);
+  searchKeyword.value = urlParams.get('q')
+    || (hashMatch ? decodeURIComponent(hashMatch[1]) : '');
   currentPage = parseInt(urlParams.get('page')) || 1;
   
   document.getElementById('order-date').value = today.toISOString().split('T')[0];
@@ -158,9 +160,6 @@ function renderOrdersTable() {
         ${order.status === 'draft' ?
           `<button class="btn btn-primary btn-confirm" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">確認</button> ` :
           ''}
-        ${order.type === 'sale' && order.status !== 'void' ?
-          `<button class="btn btn-outline btn-print-row" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button> ` :
-          ''}
         ${order.status !== 'void' ?
           `<button class="btn btn-outline btn-void" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">作廢</button>` :
           ''}
@@ -173,30 +172,8 @@ function renderOrdersTable() {
     row.addEventListener('click', (e) => {
       if (e.target.classList.contains('btn-void')) return;
       if (e.target.classList.contains('btn-confirm')) return;
-      if (e.target.classList.contains('btn-print-row')) return;
       if (e.target.classList.contains('payment-select')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
-    });
-  });
-
-  document.querySelectorAll('.btn-print-row').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const orderId = e.target.getAttribute('data-id');
-      const order = currentOrders.find(o => o.id === orderId);
-      if (!order) return;
-
-      try {
-        const { data, error } = await sb
-          .from('order_items')
-          .select('*, products(name, sku, spec, unit)')
-          .eq('order_id', orderId);
-        if (error) throw error;
-
-        printShippingOrder(order, data);
-      } catch (error) {
-        showToast('載入明細失敗: ' + error.message, 'error');
-      }
     });
   });
 

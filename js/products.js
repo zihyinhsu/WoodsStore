@@ -162,9 +162,18 @@ async function saveProduct() {
 
 // Event Listeners
 document.addEventListener('DOMContentLoaded', () => {
-  loadProducts();
-
   const searchInput = document.getElementById('search-input');
+
+  const hashMatch = window.location.hash.match(/^#search=(.+)$/);
+  const urlSearch = new URLSearchParams(window.location.search).get('search')
+    || (hashMatch ? decodeURIComponent(hashMatch[1]) : null);
+  if (urlSearch) {
+    searchInput.value = urlSearch;
+    document.getElementById('status-filter').value = 'all';
+  }
+
+  loadProducts(urlSearch || '');
+
   searchInput.addEventListener('input', debounce((e) => {
     currentPage = 1;
     loadProducts(e.target.value);
