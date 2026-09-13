@@ -9,6 +9,7 @@ let productsCache = [];
 let partnersCache = [];
 let editingOrderId = null;
 let editingOrderStatus = null;
+let pendingAutoExpand = false;
 
 // DOM Elements
 const searchDateFrom = document.getElementById('search-date-from');
@@ -35,6 +36,7 @@ async function init() {
   searchPayment.value = urlParams.get('payment') || hashParams.get('payment') || 'all';
   searchKeyword.value = urlParams.get('q') || hashParams.get('q') || '';
   currentPage = parseInt(urlParams.get('page')) || 1;
+  pendingAutoExpand = urlParams.get('expand') === '1';
 
   document.getElementById('order-date').value = toDateInputValue(new Date());
 
@@ -117,16 +119,37 @@ async function loadOrders() {
     
     renderOrdersTable();
     updatePagination();
+    autoExpandSingleResult();
   } catch (error) {
     console.error('Error loading orders:', error);
     showToast('載入單據失敗: ' + error.message, 'error');
   }
 }
 
+// 只在命中單筆時展開：q 是對 search_text 模糊比對，也會命中備註等欄位，
+// 多筆全開會把使用者真正要看的那張單淹沒。
+// 旗標用後即清，否則之後每次改搜尋條件都會再自己彈開一次。
+function autoExpandSingleResult() {
+  if (!pendingAutoExpand) return;
+  pendingAutoExpand = false;
+
+  if (currentOrders.length !== 1) return;
+
+  const row = document.querySelector('#orders-table .clickable-row');
+  if (row) toggleOrderDetail(row.getAttribute('data-id'), row);
+}
+
 function renderOrdersTable() {
   const tbody = document.querySelector('#orders-table tbody');
   if (currentOrders.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">找不到單據</td></tr>';
+    // 從收款頁的沖帳明細跳來卻撲空，多半是單號被改過或該單已不存在，
+    // 只寫「找不到單據」會讓人以為連結壞了。
+    const hint = pendingAutoExpand
+      ? `<div class="text-muted" style="font-size: 0.85rem; margin-top: 0.5rem;">
+           找不到單號 ${escapeHtml(searchKeyword.value)}，該單據可能已被刪除或單號已變更。
+         </div>`
+      : '';
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">找不到單據${hint}</td></tr>`;
     return;
   }
 
