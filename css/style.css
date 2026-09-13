@@ -13,10 +13,8 @@
   --primary: #c0531f;
   --primary-hover: #a04215;
   --success: #2f855a;
-  --success-hover: #22543d;
   --warning: #c05621;
   --danger: #c53030;
-  --danger-hover: #9b2c2c;
   
   --border-radius: 0;
   --transition: all 0.2s ease;
@@ -320,18 +318,6 @@ html.sidebar-collapsed .chevron-icon {
 }
 .btn-primary:hover:not(:disabled) { background: var(--primary-hover); }
 
-.btn-success {
-  background: var(--success);
-  color: white;
-}
-.btn-success:hover:not(:disabled) { background: var(--success-hover); }
-
-.btn-danger {
-  background: var(--danger);
-  color: white;
-}
-.btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
-
 .btn-outline {
   background: transparent;
   color: var(--text-main);
@@ -553,28 +539,10 @@ tbody tr:hover {
   font-weight: 600;
 }
 
-a.stat-link {
-  text-decoration: none;
-  color: inherit;
-  display: block;
-  cursor: pointer;
-}
-
-a.stat-link:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0 rgba(31, 31, 31, 0.2);
-}
-
-a.stat-link:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
-}
-
 /* Utilities */
 .d-flex { display: flex; }
 .justify-between { justify-content: space-between; }
 .align-center { align-items: center; }
-.gap-2 { gap: 0.5rem; }
 .gap-3 { gap: 1rem; }
 .gap-4 { gap: 1.5rem; }
 .mt-2 { margin-top: 0.5rem; }
@@ -591,10 +559,8 @@ a.stat-link:focus-visible {
 .text-success { color: var(--success); }
 .text-warning { color: var(--warning); }
 .text-muted { color: var(--text-muted); }
-.w-100 { width: 100%; }
 .grid { display: grid; }
 .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
-.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
 
 /* Tabs */
@@ -678,7 +644,7 @@ a.stat-link:focus-visible {
 
 /* Responsive */
 @media (max-width: 768px) {
-  .grid-cols-2, .grid-cols-3, .grid-cols-4 {
+  .grid-cols-2, .grid-cols-4 {
     grid-template-columns: 1fr;
   }
   
@@ -771,11 +737,6 @@ a.stat-link:focus-visible {
   }
   #print-area h1::before, #print-area h2::before {
     display: none;
-  }
-  .print-header-info {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 1rem;
   }
   .print-doc-header {
     text-align: center;
