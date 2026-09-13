@@ -128,15 +128,16 @@ async function searchStatements() {
         const partnerLines = linesByPartner.get(partner.id) || [];
         const currentSales = sum(partnerLines, 'subtotal');
         const currentPaid = sum(paymentsByPartner.get(partner.id) || [], 'amount');
-        const prevBalance =
-          sum(prevSalesByPartner.get(partner.id) || [], 'subtotal') -
-          sum(prevPaymentsByPartner.get(partner.id) || [], 'amount');
+        const prevSales = sum(prevSalesByPartner.get(partner.id) || [], 'subtotal');
+        const prevPaid = sum(prevPaymentsByPartner.get(partner.id) || [], 'amount');
+        const prevBalance = prevSales - prevPaid;
 
         return {
           partner,
           lines: partnerLines,
           currentSales,
           currentPaid,
+          prevPaid,
           prevBalance,
           totalBalance: prevBalance + currentSales - currentPaid
         };
@@ -232,7 +233,7 @@ function toggleSelectAll(isSelected) {
 }
 
 function renderStatementSection(customer, from, to, isActive) {
-  const { partner, lines, prevBalance, currentSales, currentPaid, totalBalance } = customer;
+  const { partner, lines, prevBalance, prevPaid, currentSales, currentPaid, totalBalance } = customer;
 
   let lastOrderNo = null;
   const rows = lines.length === 0
@@ -299,9 +300,13 @@ function renderStatementSection(customer, from, to, isActive) {
         <div class="statement-footer">
           <table class="totals-table">
             <tbody>
-              <tr><th>期前累計應收</th><td>${escapeHtml(formatCurrency(prevBalance))}</td></tr>
+              <tr><th>前期累計應收未收</th><td>${escapeHtml(formatCurrency(prevBalance))}</td></tr>
+              <tr class="ref-row">
+                <th>前期累計已收<small>（已含於上列計算）</small></th>
+                <td>${escapeHtml(formatCurrency(prevPaid))}</td>
+              </tr>
               <tr><th>本期應收</th><td>${escapeHtml(formatCurrency(currentSales))}</td></tr>
-              <tr><th>本期收款</th><td>${escapeHtml(formatCurrency(currentPaid))}</td></tr>
+              <tr><th>本期已收</th><td>${escapeHtml(formatCurrency(currentPaid))}</td></tr>
               <tr>
                 <th class="grand-total">合計應收</th>
                 <td class="grand-total">${escapeHtml(formatCurrency(totalBalance))}</td>

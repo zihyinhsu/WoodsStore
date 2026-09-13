@@ -154,7 +154,7 @@
       justify-content: flex-end;
     }
     .totals-table {
-      width: 300px;
+      width: 380px;
       border-collapse: collapse;
     }
     .totals-table th, .totals-table td {
@@ -171,6 +171,16 @@
     .totals-table .grand-total {
       font-weight: bold;
       font-size: 1.1rem;
+    }
+    /* 參考列：已含在「前期累計應收未收」的淨額裡，不參與合計運算，
+       以灰字與小注記提示客戶不要重複加總。 */
+    .totals-table .ref-row th, .totals-table .ref-row td {
+      color: #666;
+      font-weight: normal;
+    }
+    .totals-table .ref-row small {
+      font-size: 0.7rem;
+      color: #888;
     }
     @media print {
       .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop,
