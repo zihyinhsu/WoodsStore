@@ -534,18 +534,23 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
 
     paymentOrdersList.innerHTML = rows.map(r => `
       <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-allocatable="${escapeHtml(r.allocatable)}"
-           style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
-        <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
-        <span style="flex: 1;">
-          ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
-          <span class="text-muted" style="font-size: 0.8rem; display: block;">
-            單據 ${formatCurrency(r.order_total)}／可沖 ${formatCurrency(r.allocatable)}
+           style="padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
+          <span style="flex: 1;">
+            ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
+            <span class="text-muted" style="font-size: 0.8rem; display: block;">
+              單據 ${formatCurrency(r.order_total)}／可沖 ${formatCurrency(r.allocatable)}
+            </span>
           </span>
-        </span>
-        <input type="number" class="form-control allocation-amount" min="0" step="0.01"
-               max="${r.allocatable}" value="${r.allocated > 0 ? r.allocated : ''}"
-               ${r.allocated > 0 ? '' : 'disabled'}
-               style="width: 120px; font-family: 'Roboto', sans-serif; text-align: right;">
+          <input type="number" class="form-control allocation-amount" min="0" step="0.01"
+                 max="${r.allocatable}" value="${r.allocated > 0 ? r.allocated : ''}"
+                 ${r.allocated > 0 ? '' : 'disabled'}
+                 style="width: 120px; font-family: 'Roboto', sans-serif; text-align: right;">
+          <button type="button" class="btn btn-outline btn-toggle-items" aria-expanded="false"
+                  style="padding: 0.25rem 0.5rem; font-size: 0.8rem; white-space: nowrap;">明細</button>
+        </div>
+        <div class="allocation-items" hidden></div>
       </div>
     `).join('');
 
@@ -558,11 +563,77 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
   }
 }
 
+// 明細必須維持純展示：這個容器裡若出現任何 input，collectAllocations 與
+// updateAllocatedTotal 會把它一併算進沖帳金額，且不會報錯，只會靜默算錯。
+async function toggleAllocationDetail(row) {
+  const container = row.querySelector('.allocation-items');
+  const button = row.querySelector('.btn-toggle-items');
+
+  if (!container.hidden) {
+    container.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    return;
+  }
+
+  container.hidden = false;
+  button.setAttribute('aria-expanded', 'true');
+
+  if (container.dataset.loaded === 'true') return;
+
+  // 連點時第二次請求會在第一次回來前發出，用 token 確保只有最後一次的結果會被寫入。
+  const token = Symbol('allocation-detail');
+  row.__itemsToken = token;
+  container.innerHTML = '<div class="text-muted" style="padding: 0.5rem 0; font-size: 0.85rem;">載入中...</div>';
+
+  try {
+    const { data, error } = await sb
+      .from('order_items')
+      .select('*, products(name, sku, unit)')
+      .eq('order_id', row.getAttribute('data-id'));
+
+    if (error) throw error;
+    if (row.__itemsToken !== token) return;
+
+    const items = data || [];
+    container.dataset.loaded = 'true';
+    container.innerHTML = items.length === 0
+      ? '<div class="text-muted" style="padding: 0.5rem 0; font-size: 0.85rem;">此單據沒有明細。</div>'
+      : `
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>數量</th>
+              <th>單價</th>
+              <th>小計</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map(item => `
+              <tr>
+                <td>${escapeHtml(item.products?.name ?? '')} <span class="text-muted">(${escapeHtml(item.products?.sku ?? '')})</span></td>
+                <td>${Math.abs(item.qty)} ${escapeHtml(item.products?.unit ?? '')}</td>
+                <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.unit_price)}</td>
+                <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.subtotal)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+  } catch (error) {
+    console.error('Error loading order items:', error);
+    if (row.__itemsToken !== token) return;
+    // 不設 loaded，讓使用者收合後再展開可重試。
+    container.innerHTML = '<div style="padding: 0.5rem 0; font-size: 0.85rem; color: var(--danger);">載入明細失敗</div>';
+    showToast('載入單據明細失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
 function bindAllocationEvents() {
   document.querySelectorAll('.allocation-row').forEach(row => {
     const checkbox = row.querySelector('.order-checkbox');
     const input = row.querySelector('.allocation-amount');
     const allocatable = Number(row.getAttribute('data-allocatable'));
+
+    row.querySelector('.btn-toggle-items').addEventListener('click', () => toggleAllocationDetail(row));
 
     checkbox.addEventListener('change', () => {
       input.disabled = !checkbox.checked;
