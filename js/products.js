@@ -22,7 +22,7 @@ async function loadProducts(keyword = '') {
     }
 
     if (keyword) {
-      query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,barcode.ilike.%${keyword}%,category.ilike.%${keyword}%`);
+      query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,category.ilike.%${keyword}%`);
     }
 
     const { data, error, count } = await query;
@@ -325,7 +325,6 @@ function openEditModal(product = null) {
     document.getElementById('modal-title').textContent = '編輯商品';
     document.getElementById('product-id').value = product.id;
     document.getElementById('product-sku').value = product.sku || '';
-    document.getElementById('product-barcode').value = product.barcode || '';
     document.getElementById('product-name').value = product.name || '';
     document.getElementById('product-category').value = product.category || '';
     document.getElementById('product-unit').value = product.unit || '個';
@@ -354,7 +353,6 @@ async function saveProduct() {
   const id = document.getElementById('product-id').value;
   const productData = {
     sku: document.getElementById('product-sku').value,
-    barcode: document.getElementById('product-barcode').value || null,
     name: document.getElementById('product-name').value,
     category: document.getElementById('product-category').value || null,
     unit: document.getElementById('product-unit').value || '個',

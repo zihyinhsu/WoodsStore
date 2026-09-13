@@ -164,7 +164,7 @@
     <div class="glass-card mb-4">
       <div class="d-flex gap-3" style="display: flex; gap: 1rem; align-items: center;">
         <div class="form-group mb-0" style="flex: 1;">
-          <input type="text" id="search-input" class="form-control" placeholder="搜尋商品名稱、編號、條碼或分類...">
+          <input type="text" id="search-input" class="form-control" placeholder="搜尋商品名稱、編號或分類...">
         </div>
         <div class="form-group mb-0">
           <select id="status-filter" class="form-control" style="width: auto;">
@@ -215,13 +215,9 @@
         <form id="product-form">
           <input type="hidden" id="product-id">
           <div class="grid grid-cols-2 gap-3">
-            <div class="form-group">
+            <div class="form-group" style="grid-column: span 2;">
               <label>編號 (必填)</label>
               <input type="text" id="product-sku" class="form-control" required>
-            </div>
-            <div class="form-group">
-              <label>條碼</label>
-              <input type="text" id="product-barcode" class="form-control">
             </div>
             <div class="form-group" style="grid-column: span 2;">
               <label>商品名稱 (必填)</label>

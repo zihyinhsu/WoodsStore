@@ -9,7 +9,6 @@
 create table products (
   id            uuid primary key default gen_random_uuid(),
   sku           text unique not null,              -- 商品編號
-  barcode       text unique,                       -- 條碼（掃描槍用）
   name          text not null,                     -- 品名
   spec          text,                              -- 規格
   category      text,                              -- 分類
@@ -89,7 +88,7 @@ create index idx_order_items_order   on order_items (order_id);
 -- 即時庫存 View（只計已確認單據）
 -- ============================================
 create view stock_view as
-select p.id, p.sku, p.barcode, p.name, p.spec, p.category, p.unit,
+select p.id, p.sku, p.name, p.spec, p.category, p.unit,
        p.cost, p.price, p.tax_type, p.safety_stock, p.location,
        p.image_url, p.is_active, p.created_at,
        coalesce(sum(oi.qty) filter (where o.status = 'confirmed'), 0) as stock_qty
@@ -112,7 +111,7 @@ select
   o.order_no || ' ' || coalesce(o.note,'')
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(
-         pr.name || ' ' || pr.sku || ' ' || coalesce(pr.barcode,''), ' '), '')
+         pr.name || ' ' || pr.sku, ' '), '')
     as search_text
 from orders o
 left join partners p     on p.id = o.partner_id
@@ -395,7 +394,7 @@ insert into partners (name, type, tax_id, contact_name, phone) values
   ('大同五金行', 'supplier', '12345678', '陳老闆', '02-1234-5678'),
   ('王小明', 'customer', null, '王小明', '0912-345-678');
 
-insert into products (sku, barcode, name, spec, category, unit, cost, price, safety_stock, location) values
-  ('P001', '4710000000011', '不鏽鋼螺絲', 'M4x10mm', '五金', '包', 20, 35, 10, 'A1-01'),
-  ('P002', '4710000000028', '電工膠帶', '黑色 18mm', '耗材', '捲', 8, 15, 20, 'A2-03'),
-  ('P003', null, 'LED 燈泡', 'E27 10W 白光', '照明', '顆', 45, 79, 5, 'B1-02');
+insert into products (sku, name, spec, category, unit, cost, price, safety_stock, location) values
+  ('P001', '不鏽鋼螺絲', 'M4x10mm', '五金', '包', 20, 35, 10, 'A1-01'),
+  ('P002', '電工膠帶', '黑色 18mm', '耗材', '捲', 8, 15, 20, 'A2-03'),
+  ('P003', 'LED 燈泡', 'E27 10W 白光', '照明', '顆', 45, 79, 5, 'B1-02');
