@@ -38,6 +38,52 @@ export async function fetchCostTotals(from, to) {
   };
 }
 
+export const MOVEMENT_PAGE_SIZE = 20;
+
+// 日期沒填代表「累計」（不限該側）。傳空字串給 date 參數 Postgres 會直接報錯，
+// 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
+function toDateParam(value) {
+  return value || null;
+}
+
+export async function fetchProductCostSummary(productId, from, to) {
+  const { data, error } = await sb.rpc('product_cost_detail_summary', {
+    p_product_id: productId,
+    p_from: toDateParam(from),
+    p_to: toDateParam(to)
+  });
+
+  if (error) throw error;
+
+  const row = data?.[0] || {};
+  const purchaseQty = Number(row.purchase_qty) || 0;
+  const purchaseAmount = Number(row.purchase_amount) || 0;
+  const saleQty = Number(row.sale_qty) || 0;
+  const saleAmount = Number(row.sale_amount) || 0;
+
+  return { purchaseQty, purchaseAmount, saleQty, saleAmount };
+}
+
+export async function fetchProductMovementPage({ productId, from, to, page }) {
+  const offset = (page - 1) * MOVEMENT_PAGE_SIZE;
+
+  const { data, count, error } = await sb
+    .rpc('product_cost_movements', {
+      p_product_id: productId,
+      p_from: toDateParam(from),
+      p_to: toDateParam(to)
+    }, { count: 'exact' })
+    // 排序在這裡再指定一次，不是多餘的：SQL function 被 inline 之後外層會多包一層
+    // SELECT，函式內部的 ORDER BY 不保證留存。少了這行，翻頁會出現重複或漏列的紀錄。
+    .order('order_date', { ascending: false })
+    .order('order_no', { ascending: false })
+    .order('item_id', { ascending: false })
+    .range(offset, offset + MOVEMENT_PAGE_SIZE - 1);
+
+  if (error) throw error;
+  return { rows: data || [], total: count || 0 };
+}
+
 export async function fetchPeriodSummary(from, to) {
   const { data, error } = await sb.rpc('dashboard_summary', { p_from: from, p_to: to });
   if (error) throw error;
