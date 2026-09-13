@@ -14,7 +14,7 @@ async function loadPartners() {
       .from('partners')
       .select('*', { count: 'exact' })
       .eq('type', currentType)
-      .order('partner_no', { ascending: true })
+      .order('partner_no', { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
 
     if (error) throw error;

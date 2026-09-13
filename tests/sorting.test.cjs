@@ -4,19 +4,19 @@ const { launch, goto, cellTexts, isAscending, isDescending, Results } = require(
   const r = new Results('排序');
   const { browser, page, errors, blockedWrites } = await launch();
 
-  // 商品：依編號升冪
+  // 商品：依編號降冪（最新建立的編號較大，排在最上面）
   await goto(page, 'products.html');
   const skus = await cellTexts(page, '#products-table tbody tr td:first-child');
   r.info('商品編號', skus);
-  r.truthy('商品依編號升冪', isAscending(skus));
+  r.truthy('商品依編號降冪', isDescending(skus));
 
   // 往來對象：供應商
   await goto(page, 'partners.html');
   const suppliers = await cellTexts(page, '#partners-table tbody tr td:first-child');
   r.info('供應商編號', suppliers);
-  r.truthy('供應商依編號升冪', isAscending(suppliers));
+  r.truthy('供應商依編號降冪', isDescending(suppliers));
 
-  // 往來對象：客戶（跨頁需連續遞增）
+  // 往來對象：客戶（跨頁需連續遞減）
   await page.locator('.tab-btn[data-type="customer"]').click();
   await page.waitForFunction(() => {
     const cell = document.querySelector('#partners-table tbody tr td');
@@ -31,7 +31,7 @@ const { launch, goto, cellTexts, isAscending, isDescending, Results } = require(
     customers = customers.concat(await cellTexts(page, '#partners-table tbody tr td:first-child'));
   }
   r.info('客戶編號', customers);
-  r.truthy('客戶依編號升冪', isAscending(customers));
+  r.truthy('客戶依編號降冪', isDescending(customers));
   r.check('客戶跨頁無重複', new Set(customers).size, customers.length);
 
   // 單據：依單據日期降冪

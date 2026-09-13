@@ -43,7 +43,7 @@ async function loadProducts(keyword = '') {
     const query = applyProductFilters(
       sb.from(VIEW_SOURCES[currentView])
         .select('*', { count: 'exact' })
-        .order('sku', { ascending: true })
+        .order('sku', { ascending: false })
         .range(from, from + PAGE_SIZE - 1),
       keyword
     );

@@ -122,8 +122,8 @@ async function loadBalances() {
       }, { count: 'exact' })
       // 排序在這裡再指定一次，不是多餘的：SQL function 被 inline 後外層會多包
       // 一層 SELECT，函式內的 ORDER BY 不保證留存，翻頁會出現重複或漏列。
-      .order('partner_no', { ascending: true })
-      .order('id', { ascending: true })
+      .order('partner_no', { ascending: false })
+      .order('id', { ascending: false })
       .range(from, to);
 
     if (error) throw error;
