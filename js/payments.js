@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
+import { formatCurrency, formatDate, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentPage = 1;
@@ -516,7 +516,7 @@ function setupEventListeners() {
     openPaymentModal();
   });
   
-  document.getElementById('btn-save-payment').addEventListener('click', savePayment);
+  bindSubmitOnce('btn-save-payment', savePayment);
 
   paymentPartner.addEventListener('change', (e) => {
     const partnerId = e.target.value;

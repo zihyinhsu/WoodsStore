@@ -31,6 +31,34 @@ export function debounce(func, wait) {
   };
 }
 
+// 防連點：非同步儲存回應前先鎖住按鈕。
+// 不能只用節流，請求較慢時仍會漏掉後續點擊而重複送出。
+export function bindSubmitOnce(buttonId, handler) {
+  const button = document.getElementById(buttonId);
+  if (!button) return;
+
+  let running = false;
+
+  button.addEventListener('click', async (event) => {
+    if (running) return;
+    running = true;
+
+    // 還原點擊當下的文字，而非綁定當下：
+    // 單據頁的按鈕文案會依新增/草稿/已確認模式變動。
+    const previousText = button.textContent;
+    button.disabled = true;
+    button.textContent = '處理中...';
+
+    try {
+      await handler(event);
+    } finally {
+      running = false;
+      button.disabled = false;
+      button.textContent = previousText;
+    }
+  });
+}
+
 const UNIQUE_FIELD_LABELS = {
   products_sku_key: '商品編號',
   partners_partner_no_key: '客戶編號',

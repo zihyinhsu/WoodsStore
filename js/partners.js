@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentPartners = [];
@@ -167,5 +167,5 @@ document.addEventListener('DOMContentLoaded', () => {
     openEditModal();
   });
 
-  document.getElementById('btn-save-partner').addEventListener('click', savePartner);
+  bindSubmitOnce('btn-save-partner', savePartner);
 });

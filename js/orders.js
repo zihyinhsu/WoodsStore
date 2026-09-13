@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentPage = 1;
@@ -790,8 +790,8 @@ function setupEventListeners() {
     document.getElementById(id).addEventListener('input', calculateTotal);
   });
 
-  document.getElementById('btn-save-order').addEventListener('click', () => saveOrder('confirmed'));
-  document.getElementById('btn-save-draft').addEventListener('click', () => saveOrder('draft'));
+  bindSubmitOnce('btn-save-order', () => saveOrder('confirmed'));
+  bindSubmitOnce('btn-save-draft', () => saveOrder('draft'));
 }
 
 document.addEventListener('DOMContentLoaded', init);

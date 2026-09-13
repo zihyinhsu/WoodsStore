@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentProducts = [];
@@ -432,5 +432,5 @@ document.addEventListener('DOMContentLoaded', () => {
     openEditModal();
   });
 
-  document.getElementById('btn-save-product').addEventListener('click', saveProduct);
+  bindSubmitOnce('btn-save-product', saveProduct);
 });
