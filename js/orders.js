@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
 const PAGE_SIZE = 20;
 let currentPage = 1;
@@ -7,6 +7,8 @@ let totalCount = 0;
 let currentOrders = [];
 let productsCache = [];
 let partnersCache = [];
+let editingOrderId = null;
+let editingOrderStatus = null;
 
 // DOM Elements
 const searchDateFrom = document.getElementById('search-date-from');
@@ -158,7 +160,11 @@ function renderOrdersTable() {
       <td>${order.status === 'confirmed' ? paymentSelect(order) : paymentMap[order.payment_status]}</td>
       <td>
         ${order.status === 'draft' ?
-          `<button class="btn btn-primary btn-confirm" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">確認</button> ` :
+          `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
+           <button class="btn btn-primary btn-confirm" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">確認</button> ` :
+          ''}
+        ${order.status === 'confirmed' ?
+          `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button> ` :
           ''}
         ${order.status !== 'void' ?
           `<button class="btn btn-outline btn-void" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">作廢</button>` :
@@ -172,10 +178,20 @@ function renderOrdersTable() {
     row.addEventListener('click', (e) => {
       if (e.target.classList.contains('btn-void')) return;
       if (e.target.classList.contains('btn-confirm')) return;
+      if (e.target.classList.contains('btn-edit')) return;
       if (e.target.classList.contains('payment-select')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
     });
   });
+
+  document.querySelectorAll('.btn-edit').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openEditOrder(e.target.getAttribute('data-id'));
+    });
+  });
+
+
 
   document.querySelectorAll('.btn-confirm').forEach(btn => {
     btn.addEventListener('click', async (e) => {
@@ -207,11 +223,20 @@ async function toggleOrderDetail(orderId, rowElement) {
   const nextRow = rowElement.nextElementSibling;
   if (nextRow && nextRow.classList.contains('detail-row')) {
     nextRow.remove();
+    rowElement.classList.remove('detail-open');
     return;
   }
 
-  // Remove other open details
+  // 明細是非同步載入，連點時第二次會在插入前就進來，
+  // 因此用同步標記判定展開狀態，避免重複插入 detail-row。
+  if (rowElement.classList.contains('detail-open')) {
+    rowElement.classList.remove('detail-open');
+    return;
+  }
+
   document.querySelectorAll('.detail-row').forEach(el => el.remove());
+  document.querySelectorAll('.detail-open').forEach(el => el.classList.remove('detail-open'));
+  rowElement.classList.add('detail-open');
 
   try {
     const { data, error } = await sb
@@ -266,7 +291,8 @@ async function toggleOrderDetail(orderId, rowElement) {
       }
     }
   } catch (error) {
-    showToast('載入明細失敗: ' + error.message, 'error');
+    rowElement.classList.remove('detail-open');
+    showToast('載入明細失敗：' + toErrorMessage(error), 'error');
   }
 }
 
@@ -340,14 +366,15 @@ async function confirmOrder(orderId) {
 
 async function updatePaymentStatus(orderId, paymentStatus) {
   try {
-    const { error } = await sb.from('orders')
-      .update({ payment_status: paymentStatus })
-      .eq('id', orderId);
+    const { error } = await sb.rpc('update_order_meta', {
+      p_order_id: orderId,
+      p_payment_status: paymentStatus
+    });
     if (error) throw error;
 
     showToast('付款狀態已更新', 'success');
   } catch (error) {
-    showToast('更新失敗: ' + error.message, 'error');
+    showToast('更新失敗：' + toErrorMessage(error), 'error');
     loadOrders();
   }
 }
@@ -460,7 +487,130 @@ function calculateTotal() {
   document.getElementById('order-total-display').textContent = formatCurrency(finalTotal);
 }
 
+function setOrderModalMode(mode) {
+  const isCreate = mode === 'create';
+  const isDraft = mode === 'draft';
+  const isConfirmed = mode === 'confirmed';
+
+  const titles = { create: '新增單據', draft: '編輯草稿', confirmed: '編輯單據' };
+  document.getElementById('order-modal-title').textContent = titles[mode];
+
+  // 類型鎖定：切換 purchase/sale 會翻轉既有明細的正負號語意，
+  // 要改型別應作廢重開，而非就地修改。
+  document.getElementById('order-type').disabled = !isCreate;
+
+  // 已確認單據只開放備註；改動明細或金額等同改寫已生效的庫存與帳務。
+  const headerLocked = isConfirmed;
+  ['order-date', 'order-partner', 'order-discount', 'order-tax'].forEach(id => {
+    document.getElementById(id).disabled = headerLocked;
+  });
+
+  document.getElementById('btn-add-line').style.display = headerLocked ? 'none' : '';
+  document.getElementById('order-lines').classList.toggle('lines-readonly', headerLocked);
+  document.getElementById('confirmed-edit-hint').hidden = !isConfirmed;
+
+  const btnSaveOrder = document.getElementById('btn-save-order');
+  const btnSaveDraft = document.getElementById('btn-save-draft');
+
+  // 用 display 而非 hidden 屬性：.btn 的 display 宣告會蓋過 [hidden]。
+  btnSaveDraft.style.display = isConfirmed ? 'none' : '';
+  btnSaveOrder.textContent = isCreate ? '建立單據' : (isDraft ? '儲存並確認' : '儲存');
+  if (isDraft) btnSaveDraft.textContent = '儲存草稿';
+  if (isCreate) btnSaveDraft.textContent = '存為草稿';
+}
+
+function setLineItemsReadonly(readonly) {
+  document.querySelectorAll('#order-lines .line-item-row').forEach(row => {
+    row.querySelectorAll('select, input').forEach(el => { el.disabled = readonly; });
+    const removeBtn = row.querySelector('.btn-remove-line');
+    if (removeBtn) removeBtn.style.display = readonly ? 'none' : '';
+  });
+}
+
+async function openEditOrder(orderId) {
+  const order = currentOrders.find(o => o.id === orderId);
+  if (!order) return;
+
+  if (order.status === 'void') {
+    showToast('已作廢的單據無法編輯', 'error');
+    return;
+  }
+
+  try {
+    const { data: items, error } = await sb
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+    if (error) throw error;
+
+    editingOrderId = orderId;
+    editingOrderStatus = order.status;
+
+    const form = document.getElementById('order-form');
+    form.reset();
+    document.getElementById('order-lines').innerHTML = '';
+
+    document.getElementById('order-type').value = order.type;
+    document.getElementById('order-date').value = order.order_date;
+    document.getElementById('order-note').value = order.note || '';
+    document.getElementById('order-discount').value = order.discount || 0;
+    document.getElementById('order-tax').value = order.tax || 0;
+
+    const modal = document.getElementById('order-modal');
+    modal.classList.toggle('hide-prices', order.type === 'sale');
+
+    updatePartnerDropdown();
+    document.getElementById('order-partner').value = order.partner_id || '';
+
+    items.forEach(item => {
+      addLineItem();
+      const row = document.getElementById('order-lines').lastElementChild;
+      row.querySelector('.line-product').value = item.product_id;
+      row.querySelector('.line-product').dispatchEvent(new Event('change'));
+      row.querySelector('.line-qty').value = order.type === 'adjust' ? item.qty : Math.abs(item.qty);
+      row.querySelector('.line-price').value = item.unit_price;
+      row.querySelector('.line-discount').value = item.discount || 0;
+    });
+
+    if (items.length === 0) addLineItem();
+
+    calculateTotal();
+    setOrderModalMode(order.status === 'draft' ? 'draft' : 'confirmed');
+    setLineItemsReadonly(order.status === 'confirmed');
+    openModal('order-modal');
+  } catch (error) {
+    console.error('Error loading order for edit:', error);
+    showToast('載入單據失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
+async function saveConfirmedOrderNote() {
+  try {
+    const { error } = await sb.rpc('update_order_meta', {
+      p_order_id: editingOrderId,
+      p_note: document.getElementById('order-note').value || ''
+    });
+    if (error) throw error;
+
+    showToast('備註已更新', 'success');
+    closeModal('order-modal');
+    editingOrderId = null;
+    editingOrderStatus = null;
+    loadOrders();
+  } catch (error) {
+    console.error('Error updating note:', error);
+    showToast('更新失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
 async function saveOrder(status = 'confirmed') {
+  // 已確認單據的表頭與明細欄位皆為 disabled，僅備註可改，
+  // 直接走 meta 更新以免誤用整張替換的 RPC。
+  if (editingOrderId && editingOrderStatus === 'confirmed') {
+    await saveConfirmedOrderNote();
+    return;
+  }
+
   const form = document.getElementById('order-form');
   if (!form.checkValidity()) {
     form.reportValidity();
@@ -493,28 +643,48 @@ async function saveOrder(status = 'confirmed') {
     return;
   }
 
+  const common = {
+    p_partner: partnerId || null,
+    p_note: document.getElementById('order-note').value || null,
+    p_items: items,
+    p_order_date: document.getElementById('order-date').value,
+    p_discount: parseFloat(document.getElementById('order-discount').value) || 0,
+    p_tax: parseFloat(document.getElementById('order-tax').value) || 0
+  };
+
   try {
-    const { error } = await sb.rpc('create_order', {
-      p_type: type,
-      p_partner: partnerId || null,
-      p_note: document.getElementById('order-note').value || null,
-      p_items: items,
-      p_order_date: document.getElementById('order-date').value,
-      p_discount: parseFloat(document.getElementById('order-discount').value) || 0,
-      p_tax: parseFloat(document.getElementById('order-tax').value) || 0,
-      p_status: status
-    });
+    if (editingOrderId) {
+      const { error } = await sb.rpc('update_draft_order', {
+        p_order_id: editingOrderId,
+        ...common
+      });
+      if (error) throw error;
 
-    if (error) throw error;
+      if (status === 'confirmed') {
+        const { error: confirmError } = await sb.rpc('confirm_order', { p_order_id: editingOrderId });
+        if (confirmError) throw confirmError;
+      }
+      showToast(status === 'draft' ? '草稿已更新' : '單據已確認', 'success');
+    } else {
+      const { error } = await sb.rpc('create_order', {
+        p_type: type,
+        ...common,
+        p_status: status
+      });
+      if (error) throw error;
 
-    showToast(status === 'draft' ? '草稿已儲存' : '單據建立成功', 'success');
+      showToast(status === 'draft' ? '草稿已儲存' : '單據建立成功', 'success');
+    }
+
     closeModal('order-modal');
+    editingOrderId = null;
+    editingOrderStatus = null;
     loadOrders();
     // Refresh products cache for updated stock
     loadProductsCache();
   } catch (error) {
-    console.error('Error creating order:', error);
-    showToast('建立失敗: ' + error.message, 'error');
+    console.error('Error saving order:', error);
+    showToast('儲存失敗：' + toErrorMessage(error), 'error');
   }
 }
 
@@ -577,6 +747,9 @@ function setupEventListeners() {
 
   // Modal
   document.getElementById('btn-add-order').addEventListener('click', () => {
+    editingOrderId = null;
+    editingOrderStatus = null;
+    setOrderModalMode('create');
     document.getElementById('order-form').reset();
     document.getElementById('order-date').value = new Date().toISOString().split('T')[0];
     document.getElementById('order-lines').innerHTML = '';

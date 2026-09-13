@@ -58,6 +58,25 @@
     .hide-prices .totals-section {
       display: none !important;
     }
+    .confirmed-hint {
+      padding: 0.75rem 1rem;
+      margin-bottom: 1rem;
+      background: #fffaf0;
+      border-left: 3px solid #c05621;
+      color: #7b341e;
+      font-size: 0.9rem;
+    }
+    .confirmed-hint[hidden] {
+      display: none;
+    }
+    #order-lines.lines-readonly {
+      opacity: 0.75;
+    }
+    #order-lines.lines-readonly input,
+    #order-lines.lines-readonly select {
+      background: #f7fafc;
+      cursor: not-allowed;
+    }
     .line-item-header {
       font-weight: 700;
       color: var(--text-main);
@@ -220,10 +239,13 @@
   <div class="modal-overlay" id="order-modal">
     <div class="modal-content" style="max-width: 800px;">
       <div class="modal-header">
-        <h3>新增單據</h3>
+        <h3 id="order-modal-title">新增單據</h3>
         <button class="close-btn">&times;</button>
       </div>
       <div class="modal-body">
+        <p id="confirmed-edit-hint" class="confirmed-hint" hidden>
+          此單據已確認並計入庫存，僅可修改備註。品項或數量如需更正，請作廢後重開。
+        </p>
         <form id="order-form">
           <div class="grid grid-cols-2 gap-3 mb-4">
             <div class="form-group">
