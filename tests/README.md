@@ -13,10 +13,11 @@ Playwright 與靜態伺服器都列在 `package.json` 的 devDependencies，
 
 ## 執行
 
-測試需要一個本機靜態伺服器。先開一個終端機啟動：
+測試跑的是建置產物。先開一個終端機建置並啟動預覽伺服器：
 
 ```bash
-npm start
+npm run build
+npm run preview
 ```
 
 再開另一個終端機執行：

@@ -9,6 +9,11 @@ dist/
 .env.local
 .env.*.local
 
+### 臨時除錯腳本與工具暫存（正式測試在 tests/）
+qa-*.cjs
+.omo/
+*.log
+
 ### Windows
 # Windows thumbnail cache files
 Thumbs.db
