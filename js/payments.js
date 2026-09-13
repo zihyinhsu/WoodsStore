@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, showToast, openModal, closeModal } from './ui.js';
+import { formatCurrency, formatDate, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
 const PAGE_SIZE = 20;
 let currentPage = 1;
@@ -264,7 +264,7 @@ async function deletePayment(id) {
     await Promise.all([loadBalances(), loadPayments()]);
   } catch (error) {
     console.error('Error deleting payment:', error);
-    showToast('刪除失敗: ' + error.message, 'error');
+    showToast('刪除失敗：' + toErrorMessage(error), 'error');
   }
 }
 
@@ -492,7 +492,7 @@ async function savePayment() {
     ]);
   } catch (error) {
     console.error('Error saving payment:', error);
-    showToast('儲存失敗: ' + error.message, 'error');
+    showToast('儲存失敗：' + toErrorMessage(error), 'error');
   }
 }
 

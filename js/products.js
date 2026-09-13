@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
 const PAGE_SIZE = 20;
 let currentProducts = [];
@@ -382,7 +382,7 @@ async function saveProduct() {
     loadProducts(document.getElementById('search-input').value);
   } catch (error) {
     console.error('Error saving product:', error);
-    showToast('儲存失敗: ' + error.message, 'error');
+    showToast('儲存失敗：' + toErrorMessage(error), 'error');
   }
 }
 

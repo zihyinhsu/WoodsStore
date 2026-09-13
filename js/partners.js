@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
 const PAGE_SIZE = 20;
 let currentPartners = [];
@@ -129,7 +129,7 @@ async function savePartner() {
     loadPartners();
   } catch (error) {
     console.error('Error saving partner:', error);
-    showToast('儲存失敗: ' + error.message, 'error');
+    showToast('儲存失敗：' + toErrorMessage(error), 'error');
   }
 }
 
