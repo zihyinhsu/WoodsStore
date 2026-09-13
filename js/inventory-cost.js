@@ -1,6 +1,10 @@
 import { sb } from './supabase.js';
+import { PAGE_SIZE } from './utils.js';
 
-export const COST_PAGE_SIZE = 10;
+// 分頁筆數全站一致，直接沿用 utils.js 的 PAGE_SIZE，不另外宣告數字。
+// 這兩個名稱保留是為了讓呼叫端讀起來知道分的是哪一種資料。
+export const COST_PAGE_SIZE = PAGE_SIZE;
+export const MOVEMENT_PAGE_SIZE = PAGE_SIZE;
 
 export async function fetchCostPage({ from, to, page }) {
   const offset = (page - 1) * COST_PAGE_SIZE;
@@ -37,8 +41,6 @@ export async function fetchCostTotals(from, to) {
     estimatedProfit: saleAmount - estimatedCost
   };
 }
-
-export const MOVEMENT_PAGE_SIZE = 20;
 
 // 日期沒填代表「累計」（不限該側）。傳空字串給 date 參數 Postgres 會直接報錯，
 // 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
