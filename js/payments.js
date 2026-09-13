@@ -10,8 +10,8 @@ let balancePage = 1;
 let balanceTotal = 0;
 let orderFilterId = null;
 let orderFilterNo = null;
+let orderFilterPartnerId = null;
 let autoExpanded = false;
-let detailToken = null;
 
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
@@ -86,15 +86,25 @@ function balanceAsOf() {
 
 function renderBalanceHint(asOf, partnerId) {
   const scopes = [];
-  if (partnerId !== 'all') scopes.push('已依上方客戶條件篩選');
+  if (orderFilterId && orderFilterPartnerId) scopes.push('僅顯示該單據客戶');
+  else if (partnerId) scopes.push('已依上方客戶條件篩選');
   if (balanceKeyword.value.trim()) scopes.push('已套用關鍵字');
   const scope = scopes.length ? `${scopes.join('、')}，` : '';
   balanceAsOfHint.textContent = `${scope}統計截至 ${formatDate(asOf)} 的累計金額，不受開始日期影響。`;
 }
 
+// 從單據頁帶 order_id 進來時，餘額表鎖定該單的客戶，讓使用者同時看到
+// 「這張單的收款」與「這位客戶的總帳」。不改寫 searchPartner 的值：
+// 那會連帶篩掉收款紀錄，而同一張單可能被不同客戶的收款沖過（例如代付），
+// 篩掉反而讓使用者看不到完整的沖帳來源。
+function balancePartnerId() {
+  if (orderFilterId && orderFilterPartnerId) return orderFilterPartnerId;
+  return searchPartner.value === 'all' ? null : searchPartner.value;
+}
+
 async function loadBalances() {
   const asOf = balanceAsOf();
-  const partnerId = searchPartner.value;
+  const partnerId = balancePartnerId();
   renderBalanceHint(asOf, partnerId);
 
   try {
@@ -106,7 +116,7 @@ async function loadBalances() {
     const { data, count, error } = await sb
       .rpc('get_partner_balances', {
         p_as_of: asOf,
-        p_partner_id: partnerId === 'all' ? null : partnerId,
+        p_partner_id: partnerId,
         p_include_settled: toggleSettled.checked,
         p_keyword: balanceKeyword.value.trim() || null
       }, { count: 'exact' })
@@ -190,14 +200,16 @@ function updateUrlParams() {
 async function loadOrderFilterNo() {
   try {
     const { data, error } = await sb.from('order_search_view')
-      .select('order_no')
+      .select('order_no, partner_id')
       .eq('id', orderFilterId)
       .single();
     if (error) throw error;
     orderFilterNo = data?.order_no || null;
+    orderFilterPartnerId = data?.partner_id || null;
   } catch (error) {
     console.error('Error loading filtered order:', error);
     orderFilterNo = null;
+    orderFilterPartnerId = null;
   }
 }
 
@@ -220,9 +232,12 @@ function renderOrderFilterNotice() {
   document.getElementById('btn-clear-order-filter').addEventListener('click', () => {
     orderFilterId = null;
     orderFilterNo = null;
+    orderFilterPartnerId = null;
     autoExpanded = false;
     currentPage = 1;
+    balancePage = 1;
     loadPayments();
+    loadBalances();
   });
 }
 
@@ -327,17 +342,18 @@ function renderPaymentsTable() {
 }
 
 // 從單據頁點付款狀態帶 order_id 進來時，使用者要看的是「這張單被誰沖了、沖多少」，
-// 因此直接展開沖帳明細，省去再點一次。只在單筆結果時自動展開：
-// 多筆時無從判斷該展開哪一筆，逐一展開反而洗版。
+// 因此直接展開沖帳明細，省去再點一次。
+//
+// 全部展開而非只展開第一筆：一張已付款的單常由多筆收款分次沖成，
+// 每一筆都是答案的一部分，只展開一筆會讓使用者誤以為就只收過這麼多。
 function autoExpandFilteredOrder() {
   if (!orderFilterId || autoExpanded) return;
-  if (currentPayments.length !== 1) return;
 
-  const row = document.querySelector('#payments-table .clickable-row');
-  if (!row) return;
+  const rows = document.querySelectorAll('#payments-table .clickable-row');
+  if (rows.length === 0) return;
 
   autoExpanded = true;
-  togglePaymentDetail(row.getAttribute('data-id'), row);
+  rows.forEach(row => expandPaymentDetail(row.getAttribute('data-id'), row));
 }
 
 async function togglePaymentDetail(paymentId, rowElement) {
@@ -345,7 +361,7 @@ async function togglePaymentDetail(paymentId, rowElement) {
   if (nextRow && nextRow.classList.contains('detail-row')) {
     nextRow.remove();
     rowElement.classList.remove('detail-open');
-    detailToken = null;
+    rowElement.__detailToken = null;
     return;
   }
 
@@ -353,19 +369,25 @@ async function togglePaymentDetail(paymentId, rowElement) {
   // 因此用同步標記判定展開狀態，避免重複插入 detail-row。
   if (rowElement.classList.contains('detail-open')) {
     rowElement.classList.remove('detail-open');
-    detailToken = null;
+    rowElement.__detailToken = null;
     return;
   }
 
   document.querySelectorAll('#payments-table .detail-row').forEach(el => el.remove());
   document.querySelectorAll('#payments-table .detail-open').forEach(el => el.classList.remove('detail-open'));
+
+  await expandPaymentDetail(paymentId, rowElement);
+}
+
+async function expandPaymentDetail(paymentId, rowElement) {
+  if (rowElement.classList.contains('detail-open')) return;
   rowElement.classList.add('detail-open');
 
   // 每次展開發一個新的 token，插入前比對是否仍是最新的一次。
-  // 只靠 detail-open 旗標不夠：它在請求途中會被下一次點擊清掉，
-  // 第三次點擊便視為全新展開，與第一次的回應疊成兩列明細。
+  // token 記在該列自己身上而非共用變數：自動展開會同時開多列，
+  // 共用變數會讓後發的請求作廢先發的，只剩最後一筆插得進去。
   const token = Symbol('detail');
-  detailToken = token;
+  rowElement.__detailToken = token;
 
   try {
     const { data, error } = await sb
@@ -375,7 +397,7 @@ async function togglePaymentDetail(paymentId, rowElement) {
       .order('order_date');
 
     if (error) throw error;
-    if (detailToken !== token || !rowElement.classList.contains('detail-open')) return;
+    if (rowElement.__detailToken !== token || !rowElement.classList.contains('detail-open')) return;
 
     const payment = currentPayments.find(p => p.id === paymentId);
     const unallocated = Number(payment?.unallocated_amount) || 0;
@@ -411,7 +433,7 @@ async function togglePaymentDetail(paymentId, rowElement) {
       </tr>`);
   } catch (error) {
     console.error('Error loading allocations:', error);
-    if (detailToken !== token) return;
+    if (rowElement.__detailToken !== token) return;
     rowElement.classList.remove('detail-open');
     showToast('載入沖帳明細失敗：' + toErrorMessage(error), 'error');
   }
@@ -900,6 +922,7 @@ function setupEventListeners() {
     balanceKeyword.value = '';
     orderFilterId = null;
     orderFilterNo = null;
+    orderFilterPartnerId = null;
     autoExpanded = false;
     currentPage = 1;
     balancePage = 1;
