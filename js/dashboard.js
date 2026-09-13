@@ -1,49 +1,33 @@
-import { sb } from './supabase.js';
 import {
   COST_PAGE_SIZE,
   fetchCostPage,
   fetchCostTotals,
   fetchPeriodSummary
 } from './inventory-cost.js';
-import { formatCurrency, showToast, toDateInputValue, onReady } from './ui.js';
+import { showToast, onReady, renderPagination } from './ui.js';
+import { formatCurrency, dateRange, totalPages, escapeHtml, round2 } from './utils.js';
 
 const dateFrom = document.getElementById('cost-date-from');
 const dateTo = document.getElementById('cost-date-to');
 const btnSearch = document.getElementById('btn-cost-search');
-const movementOnlyToggle = document.getElementById('cost-movement-only');
 const btnPrevPage = document.getElementById('btn-cost-prev');
 const btnNextPage = document.getElementById('btn-cost-next');
-const pageInfo = document.getElementById('cost-page-info');
 
 let costPage = 1;
 let costTotal = 0;
 
-function monthRange(today = new Date()) {
-  return {
-    from: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
-    to: toDateInputValue(new Date(today.getFullYear(), today.getMonth() + 1, 0))
-  };
-}
-
 async function loadMonthlySummary(range) {
   const { revenue, expense, cost } = await fetchPeriodSummary(range.from, range.to);
+  const profit = round2(revenue - cost);
 
   document.getElementById('stat-month-revenue').textContent = formatCurrency(revenue);
   document.getElementById('stat-month-expense').textContent = formatCurrency(expense);
   document.getElementById('stat-month-cost').textContent = formatCurrency(cost);
-}
-
-async function loadStockStats() {
-  const [totalResult, lowStockResult] = await Promise.all([
-    sb.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
-    sb.from('low_stock_view').select('*', { count: 'exact', head: true }).eq('is_active', true)
-  ]);
-
-  if (totalResult.error) throw totalResult.error;
-  if (lowStockResult.error) throw lowStockResult.error;
-
-  document.getElementById('stat-total-products').textContent = totalResult.count || 0;
-  document.getElementById('stat-low-stock').textContent = lowStockResult.count || 0;
+  
+  const profitEl = document.getElementById('stat-month-profit');
+  profitEl.textContent = formatCurrency(profit);
+  profitEl.classList.toggle('text-danger', profit < 0);
+  profitEl.classList.toggle('text-success', profit >= 0);
 }
 
 function renderCostTable(rows) {
@@ -59,12 +43,12 @@ function renderCostTable(rows) {
     return `
       <tr>
         <td>
-          <a href="products.html#search=${encodeURIComponent(row.sku)}" class="product-link">${row.name}</a>
-          <div class="text-muted cost-sku">${row.sku}</div>
+          <a href="products.html#search=${encodeURIComponent(row.sku)}" class="product-link">${escapeHtml(row.name)}</a>
+          <div class="text-muted cost-sku">${escapeHtml(row.sku)}</div>
         </td>
-        <td>${row.purchase_qty} ${row.unit || ''}</td>
+        <td>${row.purchase_qty} ${escapeHtml(row.unit || '')}</td>
         <td class="num">${formatCurrency(row.purchase_amount)}</td>
-        <td>${row.sale_qty} ${row.unit || ''}</td>
+        <td>${row.sale_qty} ${escapeHtml(row.unit || '')}</td>
         <td class="num">${formatCurrency(row.sale_amount)}</td>
         <td class="num">${formatCurrency(row.estimated_cost)}</td>
         <td class="num ${profit < 0 ? 'text-danger' : 'text-success'}">${formatCurrency(profit)}</td>
@@ -82,10 +66,15 @@ function renderCostTotals(totals) {
 }
 
 function updateCostPagination() {
-  const totalPages = Math.ceil(costTotal / COST_PAGE_SIZE) || 1;
-  pageInfo.textContent = `第 ${costPage} / ${totalPages} 頁 (共 ${costTotal} 項商品)`;
-  btnPrevPage.disabled = costPage <= 1;
-  btnNextPage.disabled = costPage >= totalPages;
+  renderPagination({
+    page: costPage,
+    total: costTotal,
+    pageSize: COST_PAGE_SIZE,
+    unit: '項商品',
+    pageInfoId: 'cost-page-info',
+    prevId: 'btn-cost-prev',
+    nextId: 'btn-cost-next'
+  });
 }
 
 async function loadCostPage() {
@@ -104,7 +93,7 @@ async function loadCostPage() {
   btnSearch.disabled = true;
   try {
     const [{ rows, total }, totals] = await Promise.all([
-      fetchCostPage({ from, to, page: costPage, movementOnly: movementOnlyToggle.checked }),
+      fetchCostPage({ from, to, page: costPage }),
       fetchCostTotals(from, to)
     ]);
 
@@ -126,14 +115,13 @@ function resetToFirstPageAndLoad() {
 }
 
 async function loadDashboard() {
-  const range = monthRange();
+  const range = dateRange('currentMonth');
   dateFrom.value = range.from;
   dateTo.value = range.to;
 
   try {
     await Promise.all([
       loadMonthlySummary(range),
-      loadStockStats(),
       loadCostPage()
     ]);
   } catch (error) {
@@ -146,7 +134,6 @@ onReady(() => {
   loadDashboard();
 
   btnSearch.addEventListener('click', resetToFirstPageAndLoad);
-  movementOnlyToggle.addEventListener('change', resetToFirstPageAndLoad);
 
   btnPrevPage.addEventListener('click', () => {
     if (costPage > 1) {
@@ -156,7 +143,7 @@ onReady(() => {
   });
 
   btnNextPage.addEventListener('click', () => {
-    if (costPage < Math.ceil(costTotal / COST_PAGE_SIZE)) {
+    if (costPage < totalPages(costTotal, COST_PAGE_SIZE)) {
       costPage++;
       loadCostPage();
     }

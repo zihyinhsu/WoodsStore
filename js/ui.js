@@ -1,42 +1,22 @@
 // Shared UI Helpers
+//
+// 這裡只放會操作 DOM 或瀏覽器狀態的共用元件。
+// 純函式（格式化、日期換算、數值處理）請放 utils.js。
+import { totalPages } from './utils.js';
 
-export function formatCurrency(amount) {
-  return new Intl.NumberFormat('zh-TW', {
-    style: 'currency',
-    currency: 'TWD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount || 0);
-}
+// 各頁分頁列的樣板完全一致，只差資料筆數的單位文案，
+// 因此統一由這裡渲染，各頁仍自行綁定 prev/next 的載入行為。
+export function renderPagination({ page, total, pageSize, unit = '筆', pageInfoId = 'page-info', prevId = 'btn-prev-page', nextId = 'btn-next-page' }) {
+  const pages = totalPages(total, pageSize);
 
-export function formatDate(dateString) {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('zh-TW', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).replace(/\//g, '-');
-}
+  const pageInfo = document.getElementById(pageInfoId);
+  if (pageInfo) pageInfo.textContent = `第 ${page} / ${pages} 頁 (共 ${total} ${unit})`;
 
-// 日期輸入框用的 YYYY-MM-DD。
-// 不能用 toISOString()：那會先轉成 UTC，台北時間當天 08:00 前會變成前一天。
-export function toDateInputValue(date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-}
+  const prev = document.getElementById(prevId);
+  if (prev) prev.disabled = page <= 1;
 
-export function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
+  const next = document.getElementById(nextId);
+  if (next) next.disabled = page >= pages;
 }
 
 // 防連點：非同步儲存回應前先鎖住按鈕。

@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, showToast, onReady } from './ui.js';
+import { showToast, onReady } from './ui.js';
+import { formatCurrency, formatDate, escapeHtml, sum, groupBy, dateRange } from './utils.js';
 
 // DOM Elements
 const dateFrom = document.getElementById('statement-date-from');
@@ -18,41 +19,12 @@ let activePartnerId = null;
 let selectedIds = new Set();
 let partnerCount = 0;
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[ch]));
-}
-
-function sum(rows, field) {
-  return rows.reduce((total, row) => total + Number(row[field] || 0), 0);
-}
-
-function groupBy(rows, key) {
-  const map = new Map();
-  for (const row of rows) {
-    const bucket = map.get(row[key]);
-    if (bucket) bucket.push(row);
-    else map.set(row[key], [row]);
-  }
-  return map;
-}
-
 function init() {
-  const today = new Date();
-  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-  dateFrom.value = toDateInputValue(firstDay);
-  dateTo.value = toDateInputValue(lastDay);
+  const range = dateRange('currentMonth');
+  dateFrom.value = range.from;
+  dateTo.value = range.to;
 
   setupEventListeners();
-}
-
-function toDateInputValue(date) {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 async function searchStatements() {

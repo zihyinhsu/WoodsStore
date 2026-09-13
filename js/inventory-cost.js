@@ -2,14 +2,16 @@ import { sb } from './supabase.js';
 
 export const COST_PAGE_SIZE = 10;
 
-export async function fetchCostPage({ from, to, page, movementOnly }) {
+export async function fetchCostPage({ from, to, page }) {
   const offset = (page - 1) * COST_PAGE_SIZE;
 
+  // 固定只取期間內有進出貨的商品。RPC 的 p_with_movement_only 預設為 false，
+  // 省略這個參數會退回「列出全部商品」，因此必須顯式傳 true。
   const { data, count, error } = await sb
     .rpc('product_cost_analysis', {
       p_from: from,
       p_to: to,
-      p_with_movement_only: movementOnly
+      p_with_movement_only: true
     }, { count: 'exact' })
     .order('sku', { ascending: true })
     .range(offset, offset + COST_PAGE_SIZE - 1);

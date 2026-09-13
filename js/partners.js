@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { PAGE_SIZE, totalPages, escapeHtml } from './utils.js';
 
-const PAGE_SIZE = 10;
 let currentPartners = [];
 let currentType = 'supplier';
 let currentPage = 1;
@@ -22,19 +22,11 @@ async function loadPartners() {
     currentPartners = data;
     totalCount = count || 0;
     renderPartnersTable(data);
-    renderPagination();
+    renderPagination({ page: currentPage, total: totalCount, pageSize: PAGE_SIZE });
   } catch (error) {
     console.error('Error loading partners:', error);
     showToast('載入往來對象失敗: ' + error.message, 'error');
   }
-}
-
-function renderPagination() {
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
-  document.getElementById('page-info').textContent =
-    `第 ${currentPage} / ${totalPages} 頁 (共 ${totalCount} 筆)`;
-  document.getElementById('btn-prev-page').disabled = currentPage <= 1;
-  document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
 }
 
 function renderPartnersTable(partners) {
@@ -46,12 +38,12 @@ function renderPartnersTable(partners) {
 
   tbody.innerHTML = partners.map(p => `
     <tr>
-      <td>${p.partner_no || '-'}</td>
-      <td>${p.name}</td>
-      <td>${p.tax_id || '-'}</td>
-      <td>${p.contact_name || '-'}</td>
-      <td>${p.phone || '-'}</td>
-      <td>${p.payment_terms || '-'}</td>
+      <td>${escapeHtml(p.partner_no || '-')}</td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(p.tax_id || '-')}</td>
+      <td>${escapeHtml(p.contact_name || '-')}</td>
+      <td>${escapeHtml(p.phone || '-')}</td>
+      <td>${escapeHtml(p.payment_terms || '-')}</td>
       <td>
         <button class="btn btn-outline btn-edit" data-id="${p.id}">編輯</button>
       </td>
@@ -156,8 +148,7 @@ onReady(() => {
   });
 
   document.getElementById('btn-next-page').addEventListener('click', () => {
-    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages(totalCount)) {
       currentPage++;
       loadPartners();
     }

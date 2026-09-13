@@ -1,7 +1,8 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
+import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
-const PAGE_SIZE = 10;
 let currentProducts = [];
 let currentPage = 1;
 let totalCount = 0;
@@ -53,7 +54,7 @@ async function loadProducts(keyword = '') {
     currentProducts = data;
     totalCount = count || 0;
     renderProductsTable(data);
-    renderPagination();
+    renderPagination({ page: currentPage, total: totalCount, pageSize: PAGE_SIZE });
     refreshLowStockCount();
   } catch (error) {
     console.error('Error loading products:', error);
@@ -80,13 +81,7 @@ async function refreshLowStockCount() {
   badge.hidden = !count;
 }
 
-function renderPagination() {
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
-  document.getElementById('page-info').textContent =
-    `第 ${currentPage} / ${totalPages} 頁 (共 ${totalCount} 筆)`;
-  document.getElementById('btn-prev-page').disabled = currentPage <= 1;
-  document.getElementById('btn-next-page').disabled = currentPage >= totalPages;
-}
+
 
 function renderProductsTable(products) {
   const tbody = document.querySelector('#products-table tbody');
@@ -100,15 +95,15 @@ function renderProductsTable(products) {
 
   tbody.innerHTML = products.map(p => `
     <tr class="clickable-row" data-id="${p.id}">
-      <td>${p.sku}</td>
+      <td>${escapeHtml(p.sku)}</td>
       <td>
-        <div>${p.name}</div>
-        ${p.spec ? `<small class="text-muted">${p.spec}</small>` : ''}
+        <div>${escapeHtml(p.name)}</div>
+        ${p.spec ? `<small class="text-muted">${escapeHtml(p.spec)}</small>` : ''}
       </td>
-      <td>${p.category || '-'}</td>
+      <td>${escapeHtml(p.category || '-')}</td>
       <td>
         <span class="${p.stock_qty < p.safety_stock ? 'text-danger font-weight-bold' : ''}">
-          ${p.stock_qty} ${p.unit}
+          ${p.stock_qty} ${escapeHtml(p.unit)}
         </span>
       </td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(p.cost)}</td>
@@ -143,23 +138,30 @@ function renderProductsTable(products) {
 }
 
 let costModalProductId = null;
+let costMovementPage = 1;
+let costMovementTotal = 0;
+
+// 每次查詢取一個遞增序號，只有最後發出的那次可以寫進畫面。
+// 沒有這道閘門時，連開商品 A、B 若 A 的回應較慢，會蓋掉 B 的內容，
+// 變成標題是 B、數字是 A。改日期與翻頁也有同樣的競態。
+let costRequestSeq = 0;
 
 function openCostModal(productId) {
   costModalProductId = productId;
+  costMovementPage = 1;
+  costMovementTotal = 0;
 
   const product = currentProducts.find(p => p.id === productId);
   document.getElementById('cost-modal-title').textContent =
     `進出貨成本分析 - ${product ? product.name : ''}`;
 
   const modal = document.getElementById('cost-modal');
-  const today = new Date();
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(today.getDate() - 30);
+  const defaultRange = dateRange('last30Days');
 
   const fromInput = modal.querySelector('.cost-date-from');
   const toInput = modal.querySelector('.cost-date-to');
-  fromInput.value = thirtyDaysAgo.toISOString().split('T')[0];
-  toInput.value = today.toISOString().split('T')[0];
+  fromInput.value = defaultRange.from;
+  toInput.value = defaultRange.to;
 
   openModal('cost-modal');
   loadCostAnalysisData(productId, modal, fromInput.value, toInput.value);
@@ -170,8 +172,12 @@ function setupCostModalControls() {
   const fromInput = modal.querySelector('.cost-date-from');
   const toInput = modal.querySelector('.cost-date-to');
 
+  // 換日期區間等於換一組資料，頁碼必須歸 1，
+  // 否則停在第 5 頁時改區間會落在新結果的空白頁。
   const reloadData = () => {
     if (!costModalProductId) return;
+    costMovementPage = 1;
+    costMovementTotal = 0;
     loadCostAnalysisData(costModalProductId, modal, fromInput.value, toInput.value);
   };
 
@@ -180,69 +186,54 @@ function setupCostModalControls() {
 
   modal.querySelectorAll('.btn-quick-date').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const range = e.target.dataset.range;
-      const t = new Date();
-      let f = new Date();
-      let end = new Date();
-
-      if (range === 'thisMonth') {
-        f = new Date(t.getFullYear(), t.getMonth(), 1);
-        end = t;
-      } else if (range === 'lastMonth') {
-        f = new Date(t.getFullYear(), t.getMonth() - 1, 1);
-        end = new Date(t.getFullYear(), t.getMonth(), 0);
-      } else if (range === 'last30Days') {
-        f.setDate(t.getDate() - 30);
-        end = t;
-      } else if (range === 'all') {
-        fromInput.value = '';
-        toInput.value = '';
-        reloadData();
-        return;
-      }
-
-      fromInput.value = f.toISOString().split('T')[0];
-      toInput.value = end.toISOString().split('T')[0];
+      const { from, to } = dateRange(e.target.dataset.range);
+      fromInput.value = from;
+      toInput.value = to;
       reloadData();
     });
   });
+
+  // 夾在合法範圍內，不能只靠按鈕的 disabled 狀態：請求還在飛的時候連點兩次下一頁，
+  // 第二次點擊時按鈕尚未依新結果更新，頁碼就會衝過最後一頁而顯示空白表格。
+  const goToPage = (delta) => {
+    if (!costModalProductId) return;
+
+    const lastPage = totalPages(costMovementTotal, MOVEMENT_PAGE_SIZE);
+    const nextPage = Math.min(Math.max(costMovementPage + delta, 1), lastPage);
+    if (nextPage === costMovementPage) return;
+
+    costMovementPage = nextPage;
+    loadCostAnalysisData(costModalProductId, modal, fromInput.value, toInput.value);
+  };
+
+  document.getElementById('btn-cost-prev-page').addEventListener('click', () => goToPage(-1));
+  document.getElementById('btn-cost-next-page').addEventListener('click', () => goToPage(1));
 }
 
 async function loadCostAnalysisData(productId, container, from, to) {
   const contentDiv = container.querySelector('.cost-analysis-content');
   contentDiv.innerHTML = '載入中...';
-  
+
+  const requestId = ++costRequestSeq;
+  const isStale = () => requestId !== costRequestSeq;
+
   try {
-    let q = sb.from('order_items')
-      .select('qty, unit_price, discount, subtotal, orders!inner(order_no, order_date, type, status)')
-      .eq('product_id', productId)
-      .eq('orders.status', 'confirmed')
-      .order('order_date', { referencedTable: 'orders', ascending: false });
-      
-    if (from) q = q.gte('orders.order_date', from);
-    if (to)   q = q.lte('orders.order_date', to);
-    
-    const { data, error } = await q;
-    if (error) throw error;
-    
+    // 聚合與明細分兩支 RPC：聚合在 SQL 端掃全期間只回一列，明細一次只取當頁。
+    // 舊版是把該商品所有 order_items 撈回瀏覽器再 slice(0, 50)，交易筆數一多就明顯拖慢。
+    const [summary, movements] = await Promise.all([
+      fetchProductCostSummary(productId, from, to),
+      fetchProductMovementPage({ productId, from, to, page: costMovementPage })
+    ]);
+
+    if (isStale()) return;
+
+    costMovementTotal = movements.total;
+
+    const { purchaseQty, purchaseAmount, saleQty, saleAmount } = summary;
+
     const product = currentProducts.find(p => p.id === productId);
     const unit = product ? product.unit : '個';
-    
-    let purchaseQty = 0;
-    let purchaseAmount = 0;
-    let saleQty = 0;
-    let saleAmount = 0;
-    
-    data.forEach(item => {
-      if (item.orders.type === 'purchase') {
-        purchaseQty += item.qty;
-        purchaseAmount += item.subtotal;
-      } else if (item.orders.type === 'sale') {
-        saleQty += Math.abs(item.qty);
-        saleAmount += item.subtotal;
-      }
-    });
-    
+
     const avgPurchaseCost = purchaseQty > 0 ? purchaseAmount / purchaseQty : 0;
     const avgSalePrice = saleQty > 0 ? saleAmount / saleQty : 0;
     
@@ -264,9 +255,6 @@ async function loadCostAnalysisData(productId, container, from, to) {
       }
     }
     
-    const displayData = data.slice(0, 50);
-    const hasMore = data.length > 50;
-    
     const typeMap = {
       'purchase': '<span class="badge badge-blue">進貨</span>',
       'sale': '<span class="badge badge-green">出貨</span>',
@@ -274,13 +262,13 @@ async function loadCostAnalysisData(productId, container, from, to) {
     };
     
     let recordsHtml = '';
-    if (data.length === 0) {
+    if (movements.total === 0) {
       recordsHtml = '<div class="empty-state" style="padding: 2rem; border: 2px solid #1f1f1f; text-align: center; color: #666;">此區間無進出紀錄</div>';
     } else {
-      const rowsHtml = displayData.map(item => {
-        const isAdjust = item.orders.type === 'adjust';
-        const isSale = item.orders.type === 'sale';
-        const isPurchase = item.orders.type === 'purchase';
+      const rowsHtml = movements.rows.map(item => {
+        const isAdjust = item.type === 'adjust';
+        const isSale = item.type === 'sale';
+        const isPurchase = item.type === 'purchase';
         
         let qtyStr = item.qty;
         if (isPurchase) qtyStr = '+' + item.qty;
@@ -298,9 +286,9 @@ async function loadCostAnalysisData(productId, container, from, to) {
         
         return `
           <tr class="${isAdjust ? 'adjust-row' : ''}">
-            <td>${formatDate(item.orders.order_date)}</td>
-            <td>${item.orders.order_no}</td>
-            <td>${typeMap[item.orders.type]}</td>
+            <td>${formatDate(item.order_date)}</td>
+            <td>${escapeHtml(item.order_no)}</td>
+            <td>${typeMap[item.type]}</td>
             <td class="num-col">${qtyStr}</td>
             <td class="num-col">${priceStr}</td>
             <td class="num-col">${amountStr}</td>
@@ -328,37 +316,51 @@ async function loadCostAnalysisData(productId, container, from, to) {
     }
     
     contentDiv.innerHTML = `
-      <div class="stat-cards">
-        <div class="stat-card">
-          <div class="stat-card-title">平均進貨成本</div>
-          <div class="stat-card-value">${purchaseQty > 0 ? formatCurrency(avgPurchaseCost) : '--'}</div>
-          <div class="stat-card-subtitle">進${purchaseQty}${unit} ${formatCurrency(purchaseAmount)}</div>
+      <div class="metric-cards">
+        <div class="metric-card">
+          <div class="metric-card-title">平均進貨成本</div>
+          <div class="metric-card-value">${purchaseQty > 0 ? formatCurrency(avgPurchaseCost) : '--'}</div>
+          <div class="metric-card-subtitle">進${purchaseQty}${escapeHtml(unit)} ${formatCurrency(purchaseAmount)}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-card-title">平均出貨單價</div>
-          <div class="stat-card-value">${saleQty > 0 ? formatCurrency(avgSalePrice) : '--'}</div>
-          <div class="stat-card-subtitle">出${saleQty}${unit} ${formatCurrency(saleAmount)}</div>
+        <div class="metric-card">
+          <div class="metric-card-title">平均出貨單價</div>
+          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(avgSalePrice) : '--'}</div>
+          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} ${formatCurrency(saleAmount)}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-card-title">毛利</div>
-          <div class="stat-card-value">${grossProfit}</div>
-          <div class="stat-card-subtitle">出貨總額 - (平均進貨成本 × 出貨量)</div>
+        <div class="metric-card">
+          <div class="metric-card-title">毛利</div>
+          <div class="metric-card-value">${grossProfit}</div>
+          <div class="metric-card-subtitle">出貨總額 - (平均進貨成本 × 出貨量)</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-card-title">毛利率</div>
-          <div class="stat-card-value ${marginClass}">${grossMargin}</div>
-          <div class="stat-card-subtitle">毛利 ÷ 出貨總額</div>
+        <div class="metric-card">
+          <div class="metric-card-title">毛利率</div>
+          <div class="metric-card-value ${marginClass}">${grossMargin}</div>
+          <div class="metric-card-subtitle">毛利 ÷ 出貨總額</div>
         </div>
       </div>
       
-      <h5 style="margin: 0 0 1rem 0; color: #1f1f1f; font-size: 1rem;">區間內進出紀錄 ${hasMore ? '<span class="text-muted" style="font-size: 0.8rem; font-weight: normal;">(僅顯示前 50 筆)</span>' : ''}</h5>
+      <h5 style="margin: 0 0 1rem 0; color: #1f1f1f; font-size: 1rem;">區間內進出紀錄</h5>
       ${recordsHtml}
     `;
-    
+
+    const pagination = document.getElementById('cost-pagination');
+    pagination.hidden = movements.total === 0;
+    renderPagination({
+      page: costMovementPage,
+      total: movements.total,
+      pageSize: MOVEMENT_PAGE_SIZE,
+      pageInfoId: 'cost-page-info',
+      prevId: 'btn-cost-prev-page',
+      nextId: 'btn-cost-next-page'
+    });
+
   } catch (error) {
     console.error('Error loading cost analysis:', error);
-    contentDiv.innerHTML = `<div class="text-danger">載入失敗: ${error.message}</div>`;
-    showToast('載入成本分析失敗: ' + error.message, 'error');
+    if (isStale()) return;
+
+    contentDiv.innerHTML = `<div class="text-danger">載入失敗: ${escapeHtml(toErrorMessage(error))}</div>`;
+    document.getElementById('cost-pagination').hidden = true;
+    showToast('載入成本分析失敗: ' + toErrorMessage(error), 'error');
   }
 }
 
@@ -495,8 +497,7 @@ onReady(() => {
   });
 
   document.getElementById('btn-next-page').addEventListener('click', () => {
-    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages(totalCount)) {
       currentPage++;
       loadProducts(searchInput.value);
     }

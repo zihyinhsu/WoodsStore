@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
 
-const PAGE_SIZE = 10;
 let currentPage = 1;
 let totalCount = 0;
 let currentOrders = [];
@@ -18,27 +18,23 @@ const searchStatus = document.getElementById('search-status');
 const searchKeyword = document.getElementById('search-keyword');
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
-const pageInfo = document.getElementById('page-info');
 
 async function init() {
   // Parse URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   
   // Set default date range (last 30 days) if not in URL
-  const today = new Date();
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(today.getDate() - 30);
-  
+  const defaultRange = dateRange('last30Days');
   const hashParams = new URLSearchParams(window.location.hash.slice(1));
 
-  searchDateTo.value = urlParams.get('to') || today.toISOString().split('T')[0];
-  searchDateFrom.value = urlParams.get('from') || thirtyDaysAgo.toISOString().split('T')[0];
+  searchDateTo.value = urlParams.get('to') || defaultRange.to;
+  searchDateFrom.value = urlParams.get('from') || defaultRange.from;
   searchType.value = urlParams.get('type') || 'all';
   searchStatus.value = urlParams.get('status') || hashParams.get('status') || 'active';
   searchKeyword.value = urlParams.get('q') || hashParams.get('q') || '';
   currentPage = parseInt(urlParams.get('page')) || 1;
-  
-  document.getElementById('order-date').value = today.toISOString().split('T')[0];
+
+  document.getElementById('order-date').value = toDateInputValue(new Date());
 
   // Load initial data
   await Promise.all([
@@ -149,17 +145,17 @@ function renderOrdersTable() {
       ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已收 ${formatCurrency(paid)}</span>`
       : '';
     return `
-      <a href="payments.html?order_id=${order.id}" class="payment-link"
+      <a href="payments.html?order_id=${encodeURIComponent(order.id)}" class="payment-link"
          title="查看此單據的收款紀錄">${label}${detail}</a>`;
   };
 
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
       <td>${formatDate(order.order_date)}</td>
-      <td>${order.order_no}</td>
+      <td>${escapeHtml(order.order_no)}</td>
       <td>${typeMap[order.type]}</td>
       <td>${statusMap[order.status]}</td>
-      <td>${order.partner_name || '-'}</td>
+      <td>${escapeHtml(order.partner_name || '-')}</td>
       <td>${order.item_count}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
       <td>${order.type === 'sale' && order.status === 'confirmed' ? paymentLink(order) : '-'}</td>
@@ -267,8 +263,8 @@ async function toggleOrderDetail(orderId, rowElement) {
             <tbody>
               ${data.map(item => `
                 <tr>
-                  <td>${item.products.name} <span class="text-muted">(${item.products.sku})</span></td>
-                  <td>${Math.abs(item.qty)} ${item.products.unit}</td>
+                  <td>${escapeHtml(item.products.name)} <span class="text-muted">(${escapeHtml(item.products.sku)})</span></td>
+                  <td>${Math.abs(item.qty)} ${escapeHtml(item.products.unit)}</td>
                   <td>${formatCurrency(item.unit_price)}</td>
                   <td>${item.discount}</td>
                   <td>${formatCurrency(item.subtotal)}</td>
@@ -310,14 +306,14 @@ async function printShippingOrder(order, items) {
     </div>
     <div class="print-info-box">
       <div>
-        <p><strong>客戶編號：</strong>${partner?.partner_no || ''}</p>
-        <p><strong>客戶名稱：</strong>${order.partner_name || ''}</p>
-        <p><strong>統一編號：</strong>${partner?.tax_id || ''}</p>
+        <p><strong>客戶編號：</strong>${escapeHtml(partner?.partner_no || '')}</p>
+        <p><strong>客戶名稱：</strong>${escapeHtml(order.partner_name || '')}</p>
+        <p><strong>統一編號：</strong>${escapeHtml(partner?.tax_id || '')}</p>
       </div>
       <div>
-        <p><strong>單號：</strong>${order.order_no}</p>
+        <p><strong>單號：</strong>${escapeHtml(order.order_no)}</p>
         <p><strong>出貨日期：</strong>${formatDate(order.order_date)}</p>
-        <p><strong>聯絡電話：</strong>${partner?.phone || ''}</p>
+        <p><strong>聯絡電話：</strong>${escapeHtml(partner?.phone || '')}</p>
       </div>
     </div>
     <table>
@@ -332,10 +328,10 @@ async function printShippingOrder(order, items) {
       <tbody>
         ${items.map(item => `
           <tr>
-            <td>${item.products.name}</td>
-            <td>${item.products.spec || ''}</td>
+            <td>${escapeHtml(item.products.name)}</td>
+            <td>${escapeHtml(item.products.spec || '')}</td>
             <td>${Math.abs(item.qty)}</td>
-            <td>${item.products.unit || ''}</td>
+            <td>${escapeHtml(item.products.unit || '')}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -375,11 +371,7 @@ async function voidOrder(orderId) {
 }
 
 function updatePagination() {
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
-  pageInfo.textContent = `第 ${currentPage} / ${totalPages} 頁 (共 ${totalCount} 筆)`;
-  
-  btnPrevPage.disabled = currentPage <= 1;
-  btnNextPage.disabled = currentPage >= totalPages;
+  renderPagination({ page: currentPage, total: totalCount, pageSize: PAGE_SIZE });
 }
 
 // --- Order Creation Modal Logic ---
@@ -393,7 +385,7 @@ function updatePartnerDropdown() {
   if (type === 'sale') filtered = partnersCache.filter(p => p.type === 'customer');
   
   select.innerHTML = '<option value="">請選擇...</option>' + 
-    filtered.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    filtered.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
 }
 
 function addLineItem() {
@@ -407,7 +399,7 @@ function addLineItem() {
   row.innerHTML = `
     <select class="form-control line-product" required>
       <option value="">選擇商品...</option>
-      ${productsCache.map(p => `<option value="${p.id}" data-cost="${p.cost}" data-price="${p.price}" data-stock="${p.stock_qty}" data-spec="${p.spec || ''}" data-unit="${p.unit || ''}">${p.name} (庫存: ${p.stock_qty})</option>`).join('')}
+      ${productsCache.map(p => `<option value="${escapeHtml(p.id)}" data-cost="${escapeHtml(p.cost)}" data-price="${escapeHtml(p.price)}" data-stock="${escapeHtml(p.stock_qty)}" data-spec="${escapeHtml(p.spec || '')}" data-unit="${escapeHtml(p.unit || '')}">${escapeHtml(p.name)} (庫存: ${escapeHtml(p.stock_qty)})</option>`).join('')}
     </select>
     <div class="line-spec-unit text-muted" style="font-size: 0.9rem; padding: 0.5rem;">-</div>
     <input type="number" class="form-control line-qty" min="1" value="1" required>
@@ -687,26 +679,9 @@ function setupEventListeners() {
   // Quick ranges
   document.querySelectorAll('.quick-ranges button').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      const range = e.target.dataset.range;
-      const today = new Date();
-      let from = new Date();
-      let to = new Date();
-
-      if (range === 'today') {
-        // already set
-      } else if (range === 'thisWeek') {
-        const day = today.getDay();
-        const diff = today.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-        from.setDate(diff);
-      } else if (range === 'thisMonth') {
-        from = new Date(today.getFullYear(), today.getMonth(), 1);
-      } else if (range === 'lastMonth') {
-        from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-        to = new Date(today.getFullYear(), today.getMonth(), 0);
-      }
-
-      searchDateFrom.value = from.toISOString().split('T')[0];
-      searchDateTo.value = to.toISOString().split('T')[0];
+      const { from, to } = dateRange(e.target.dataset.range);
+      searchDateFrom.value = from;
+      searchDateTo.value = to;
       currentPage = 1;
       loadOrders();
     });
@@ -721,8 +696,7 @@ function setupEventListeners() {
   });
 
   btnNextPage.addEventListener('click', () => {
-    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages(totalCount)) {
       currentPage++;
       loadOrders();
     }
@@ -734,7 +708,7 @@ function setupEventListeners() {
     editingOrderStatus = null;
     setOrderModalMode('create');
     document.getElementById('order-form').reset();
-    document.getElementById('order-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('order-date').value = toDateInputValue(new Date());
     document.getElementById('order-lines').innerHTML = '';
     document.getElementById('order-total-display').textContent = 'NT$ 0';
     

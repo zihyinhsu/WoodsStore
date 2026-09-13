@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, toDateInputValue, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, debounce, round2, totalPages, escapeHtml } from './utils.js';
 
-const PAGE_SIZE = 10;
 let currentPage = 1;
 let totalCount = 0;
 let currentPayments = [];
@@ -12,7 +12,6 @@ let orderFilterNo = null;
 
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
-const pageInfo = document.getElementById('page-info');
 const paymentPartner = document.getElementById('payment-partner');
 const paymentOrdersList = document.getElementById('payment-orders-list');
 const paymentAmount = document.getElementById('payment-amount');
@@ -34,10 +33,6 @@ const methodMap = {
   'transfer': '匯款',
   'check': '支票'
 };
-
-function round2(value) {
-  return Math.round((Number(value) || 0) * 100) / 100;
-}
 
 async function init() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -61,7 +56,7 @@ async function loadPartnersCache() {
   const { data } = await sb.from('partners').select('*').eq('type', 'customer').order('partner_no');
   partnersCache = data || [];
 
-  const options = partnersCache.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const options = partnersCache.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
   paymentPartner.innerHTML = '<option value="">請選擇...</option>' + options;
 
   const keepSelected = searchPartner.value;
@@ -84,8 +79,8 @@ async function loadBalances() {
 
     tbody.innerHTML = balanceCache.map(b => `
       <tr>
-        <td>${b.partner_no || '-'}</td>
-        <td>${b.name}</td>
+        <td>${escapeHtml(b.partner_no || '-')}</td>
+        <td>${escapeHtml(b.name)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_sales)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_paid)}</td>
         <td style="font-family: 'Roboto', sans-serif;" class="${Number(b.unallocated_credit) > 0 ? 'text-warning' : 'text-muted'}">
@@ -137,7 +132,7 @@ function renderOrderFilterNotice() {
     return;
   }
 
-  const label = orderFilterNo ? `單號 ${orderFilterNo}` : '指定單據';
+  const label = orderFilterNo ? `單號 ${escapeHtml(orderFilterNo)}` : '指定單據';
 
   orderFilterNotice.style.display = '';
   orderFilterNotice.innerHTML = `
@@ -200,15 +195,15 @@ function renderPaymentsTable() {
     return `
     <tr>
       <td>${formatDate(p.payment_date)}</td>
-      <td>${p.payment_no}</td>
-      <td>${p.partner_name || '-'}</td>
+      <td>${escapeHtml(p.payment_no)}</td>
+      <td>${escapeHtml(p.partner_name || '-')}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(p.amount)}</td>
       <td style="font-family: 'Roboto', sans-serif;">
         ${formatCurrency(p.allocated_amount)}
         ${unallocated > 0 ? `<span class="text-warning" style="font-size: 0.8rem; display: block;">未分配 ${formatCurrency(unallocated)}</span>` : ''}
       </td>
-      <td>${methodMap[p.method] || p.method}</td>
-      <td>${p.note || '-'}</td>
+      <td>${methodMap[p.method] || escapeHtml(p.method)}</td>
+      <td>${escapeHtml(p.note || '-')}</td>
       <td>
         <button class="btn btn-outline btn-edit-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
         <button class="btn btn-outline btn-print" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button>
@@ -323,11 +318,11 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
     rows.sort((a, b) => (a.order_date < b.order_date ? -1 : a.order_date > b.order_date ? 1 : 0));
 
     paymentOrdersList.innerHTML = rows.map(r => `
-      <div class="allocation-row" data-id="${r.id}" data-allocatable="${r.allocatable}"
+      <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-allocatable="${escapeHtml(r.allocatable)}"
            style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
         <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
         <span style="flex: 1;">
-          ${formatDate(r.order_date)} - ${r.order_no}
+          ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
           <span class="text-muted" style="font-size: 0.8rem; display: block;">
             單據 ${formatCurrency(r.order_total)}／可沖 ${formatCurrency(r.allocatable)}
           </span>
@@ -590,11 +585,11 @@ async function printPayment(payment) {
       return `
         <tr>
           <td>${showOrderInfo ? formatDate(line.order_date) : ''}</td>
-          <td>${showOrderInfo ? line.order_no : ''}</td>
-          <td>${line.product_name}</td>
-          <td>${line.spec || ''}</td>
-          <td>${line.qty}</td>
-          <td>${line.unit || ''}</td>
+          <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
+          <td>${escapeHtml(line.product_name)}</td>
+          <td>${escapeHtml(line.spec || '')}</td>
+          <td>${escapeHtml(line.qty)}</td>
+          <td>${escapeHtml(line.unit || '')}</td>
           <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.unit_price)}</td>
           <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.subtotal)}</td>
         </tr>
@@ -627,14 +622,14 @@ async function printPayment(payment) {
     </div>
     <div class="print-info-box">
       <div>
-        <p><strong>客戶編號：</strong>${partner?.partner_no || ''}</p>
-        <p><strong>客戶名稱：</strong>${payment.partner_name || partner?.name || ''}</p>
-        <p><strong>統一編號：</strong>${partner?.tax_id || ''}</p>
+        <p><strong>客戶編號：</strong>${escapeHtml(partner?.partner_no || '')}</p>
+        <p><strong>客戶名稱：</strong>${escapeHtml(payment.partner_name || partner?.name || '')}</p>
+        <p><strong>統一編號：</strong>${escapeHtml(partner?.tax_id || '')}</p>
       </div>
       <div>
-        <p><strong>收款單號：</strong>${payment.payment_no}</p>
+        <p><strong>收款單號：</strong>${escapeHtml(payment.payment_no)}</p>
         <p><strong>收款日期：</strong>${formatDate(payment.payment_date)}</p>
-        <p><strong>聯絡電話：</strong>${partner?.phone || ''}</p>
+        <p><strong>聯絡電話：</strong>${escapeHtml(partner?.phone || '')}</p>
       </div>
     </div>
     ${detailsHtml}
@@ -647,8 +642,8 @@ async function printPayment(payment) {
       <tbody>
         <tr>
           <td>${formatDate(payment.payment_date)}</td>
-          <td>${methodMap[payment.method] || payment.method}</td>
-          <td>${payment.note || ''}</td>
+          <td>${methodMap[payment.method] || escapeHtml(payment.method)}</td>
+          <td>${escapeHtml(payment.note || '')}</td>
           <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(payment.amount)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
@@ -667,11 +662,7 @@ async function printPayment(payment) {
 }
 
 function updatePagination() {
-  const totalPages = Math.ceil(totalCount / PAGE_SIZE) || 1;
-  pageInfo.textContent = `第 ${currentPage} / ${totalPages} 頁 (共 ${totalCount} 筆)`;
-
-  btnPrevPage.disabled = currentPage <= 1;
-  btnNextPage.disabled = currentPage >= totalPages;
+  renderPagination({ page: currentPage, total: totalCount, pageSize: PAGE_SIZE });
 }
 
 function runSearch() {
@@ -692,8 +683,7 @@ function setupEventListeners() {
   });
 
   btnNextPage.addEventListener('click', () => {
-    const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-    if (currentPage < totalPages) {
+    if (currentPage < totalPages(totalCount)) {
       currentPage++;
       loadPayments();
     }
