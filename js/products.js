@@ -11,7 +11,7 @@ async function loadProducts(keyword = '') {
     const from = (currentPage - 1) * PAGE_SIZE;
     let query = sb.from('stock_view')
       .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
+      .order('sku', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
 
     const statusFilter = document.getElementById('status-filter').value;

@@ -73,6 +73,7 @@ async function loadMoreRecentOrders() {
       .from('order_search_view')
       .select('*')
       .gte('order_date', recentSince())
+      .order('order_date', { ascending: false })
       .order('created_at', { ascending: false })
       .range(recentLoaded, recentLoaded + RECENT_BATCH - 1);
     if (error) throw error;
