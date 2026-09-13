@@ -18,6 +18,88 @@
     .statement-controls .form-group {
       margin-bottom: 0;
     }
+    .statement-hint {
+      color: var(--text-muted, #718096);
+      margin-bottom: 1rem;
+    }
+    .statement-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+    .statement-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .statement-toolbar[hidden] {
+      display: none;
+    }
+    .select-all-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .select-all-label input {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .select-count {
+      color: var(--text-muted, #718096);
+      font-size: 0.9rem;
+    }
+    .statement-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      padding: 0 0.5rem 0 0.75rem;
+      border: 1px solid var(--border-light, #cbd5e0);
+      background: #fff;
+      color: #2d3748;
+      font: inherit;
+      transition: background-color 0.15s ease, border-color 0.15s ease;
+    }
+    .statement-tab:hover {
+      background: #edf2f7;
+    }
+    .statement-tab.is-active {
+      background: #2b6cb0;
+      border-color: #2b6cb0;
+      color: #fff;
+      font-weight: 600;
+    }
+    .tab-check {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .tab-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      padding: 0 0.5rem;
+      background: none;
+      border: none;
+      color: inherit;
+      font: inherit;
+      cursor: pointer;
+    }
+    .statement-tab .tab-balance {
+      font-size: 0.85rem;
+      opacity: 0.85;
+    }
+    .statement-section[hidden] {
+      display: none;
+    }
     .statement-preview {
       background: white;
       padding: 2rem;
@@ -91,7 +173,8 @@
       font-size: 1.1rem;
     }
     @media print {
-      .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop {
+      .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop,
+      .statement-tabs, .statement-hint, .statement-toolbar {
         display: none !important;
       }
       .container {
@@ -104,6 +187,25 @@
         box-shadow: none;
         border: none;
         padding: 0;
+      }
+      /* 列印全部：顯示所有客戶，每位客戶各自分頁 */
+      body.print-all .statement-section {
+        display: block !important;
+      }
+      body.print-all .statement-section + .statement-section {
+        break-before: page;
+        page-break-before: always;
+      }
+      /* 列印勾選客戶：只輸出被勾選的，且各自分頁 */
+      body.print-selected .statement-section {
+        display: none !important;
+      }
+      body.print-selected .statement-section.is-selected {
+        display: block !important;
+      }
+      body.print-selected .statement-section.is-selected ~ .statement-section.is-selected {
+        break-before: page;
+        page-break-before: always;
       }
     }
   </style>
@@ -165,85 +267,31 @@
 
     <div class="glass-card mb-4 statement-controls">
       <div class="form-group">
-        <label>客戶</label>
-        <select id="statement-partner" class="form-control" style="min-width: 200px;">
-          <option value="">請選擇...</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>開始日期</label>
+        <label for="statement-date-from">開始日期</label>
         <input type="date" id="statement-date-from" class="form-control">
       </div>
       <div class="form-group">
-        <label>結束日期</label>
+        <label for="statement-date-to">結束日期</label>
         <input type="date" id="statement-date-to" class="form-control">
       </div>
-      <button class="btn btn-primary" id="btn-generate">產生對帳單</button>
-      <button class="btn btn-outline" id="btn-print" disabled>列印</button>
+      <button class="btn btn-primary" id="btn-search">查詢</button>
+      <button class="btn btn-outline" id="btn-print-selected" disabled>列印選取</button>
+      <button class="btn btn-outline" id="btn-print-all" disabled>列印全部</button>
     </div>
 
-    <div id="statement-area" style="display: none;">
-      <div class="statement-preview">
-        <div class="statement-header">
-          <h1>藝境裝潢材料行</h1>
-          <h2>應收帳款明細表</h2>
-        </div>
-        
-        <div class="customer-info">
-          <div>
-            <p><strong>客戶編號：</strong><span id="st-partner-no"></span></p>
-            <p><strong>公司名稱：</strong><span id="st-partner-name"></span></p>
-            <p><strong>統一編號：</strong><span id="st-partner-tax"></span></p>
-          </div>
-          <div>
-            <p><strong>聯絡電話：</strong><span id="st-partner-phone"></span></p>
-            <p><strong>聯絡地址：</strong><span id="st-partner-address"></span></p>
-            <p><strong>對帳期間：</strong><span id="st-date-range"></span></p>
-          </div>
-        </div>
+    <p id="statement-hint" class="statement-hint">請選擇日期區間後按「查詢」，系統會列出該期間有對帳單的客戶。</p>
 
-        <table class="statement-table">
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>單號</th>
-              <th>品名</th>
-              <th>規格</th>
-              <th>數量</th>
-              <th>單位</th>
-              <th>單價</th>
-              <th>金額</th>
-            </tr>
-          </thead>
-          <tbody id="st-lines">
-            <!-- Lines will be injected here -->
-          </tbody>
-        </table>
-
-        <div class="statement-footer">
-          <table class="totals-table">
-            <tbody>
-              <tr>
-                <th>期前累計應收</th>
-                <td id="st-prev-balance">0</td>
-              </tr>
-              <tr>
-                <th>本期應收</th>
-                <td id="st-current-sales">0</td>
-              </tr>
-              <tr>
-                <th>本期收款</th>
-                <td id="st-current-paid">0</td>
-              </tr>
-              <tr>
-                <th class="grand-total">合計應收</th>
-                <td class="grand-total" id="st-total-balance">0</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div id="statement-toolbar" class="statement-toolbar" hidden>
+      <label class="select-all-label">
+        <input type="checkbox" id="select-all">
+        <span>全選</span>
+      </label>
+      <span id="select-count" class="select-count"></span>
     </div>
+
+    <div id="statement-tabs" class="statement-tabs" role="tablist" aria-label="客戶對帳單"></div>
+
+    <div id="statement-area"></div>
   </div>
 
   <script type="module" src="js/statement.js"></script>

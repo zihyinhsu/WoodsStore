@@ -1,157 +1,387 @@
 import { sb } from './supabase.js';
 import { formatCurrency, formatDate, showToast } from './ui.js';
 
-let partnersCache = [];
-
 // DOM Elements
-const partnerSelect = document.getElementById('statement-partner');
 const dateFrom = document.getElementById('statement-date-from');
 const dateTo = document.getElementById('statement-date-to');
-const btnGenerate = document.getElementById('btn-generate');
-const btnPrint = document.getElementById('btn-print');
+const btnSearch = document.getElementById('btn-search');
+const btnPrintSelected = document.getElementById('btn-print-selected');
+const btnPrintAll = document.getElementById('btn-print-all');
+const tabsEl = document.getElementById('statement-tabs');
 const statementArea = document.getElementById('statement-area');
+const hintEl = document.getElementById('statement-hint');
+const toolbarEl = document.getElementById('statement-toolbar');
+const selectAllEl = document.getElementById('select-all');
+const selectCountEl = document.getElementById('select-count');
 
-async function init() {
-  // Default to current month
+let activePartnerId = null;
+let selectedIds = new Set();
+let partnerCount = 0;
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[ch]));
+}
+
+function sum(rows, field) {
+  return rows.reduce((total, row) => total + Number(row[field] || 0), 0);
+}
+
+function groupBy(rows, key) {
+  const map = new Map();
+  for (const row of rows) {
+    const bucket = map.get(row[key]);
+    if (bucket) bucket.push(row);
+    else map.set(row[key], [row]);
+  }
+  return map;
+}
+
+function init() {
   const today = new Date();
   const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
   const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-  
-  dateFrom.value = firstDay.toISOString().split('T')[0];
-  dateTo.value = lastDay.toISOString().split('T')[0];
 
-  await loadPartnersCache();
+  dateFrom.value = toDateInputValue(firstDay);
+  dateTo.value = toDateInputValue(lastDay);
+
   setupEventListeners();
 }
 
-async function loadPartnersCache() {
-  const { data } = await sb.from('partners').select('*').eq('type', 'customer');
-  partnersCache = data || [];
-  
-  partnerSelect.innerHTML = '<option value="">請選擇...</option>' + 
-    partnersCache.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+function toDateInputValue(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
-async function generateStatement() {
-  const partnerId = partnerSelect.value;
+async function searchStatements() {
   const from = dateFrom.value;
   const to = dateTo.value;
-  
-  if (!partnerId) {
-    showToast('請選擇客戶', 'error');
-    return;
-  }
+
   if (!from || !to) {
     showToast('請選擇日期區間', 'error');
     return;
   }
+  if (from > to) {
+    showToast('開始日期不可晚於結束日期', 'error');
+    return;
+  }
 
-  const partner = partnersCache.find(p => p.id === partnerId);
-  
+  btnSearch.disabled = true;
   try {
-    // 1. Get statement lines in range
-    const { data: lines, error: err1 } = await sb
+    // 1. 期間內所有客戶的出貨明細
+    const { data: lines, error: errLines } = await sb
       .from('statement_line_view')
       .select('*')
-      .eq('partner_id', partnerId)
       .gte('order_date', from)
       .lte('order_date', to)
       .order('order_date', { ascending: true })
       .order('order_no', { ascending: true });
-      
-    if (err1) throw err1;
+    if (errLines) throw errLines;
 
-    // 2. Get payments in range
-    const { data: currentPayments, error: err2 } = await sb
+    // 2. 期間內所有客戶的收款
+    const { data: payments, error: errPayments } = await sb
       .from('payments')
-      .select('amount')
-      .eq('partner_id', partnerId)
+      .select('partner_id, amount')
       .gte('payment_date', from)
       .lte('payment_date', to);
-      
-    if (err2) throw err2;
+    if (errPayments) throw errPayments;
 
-    // 3. Get previous sales (before 'from')
-    const { data: prevSales, error: err3 } = await sb
-      .from('statement_line_view')
-      .select('subtotal')
-      .eq('partner_id', partnerId)
-      .lt('order_date', from);
-      
-    if (err3) throw err3;
+    const linesByPartner = groupBy(lines || [], 'partner_id');
+    const paymentsByPartner = groupBy(payments || [], 'partner_id');
 
-    // 4. Get previous payments (before 'from')
-    const { data: prevPayments, error: err4 } = await sb
-      .from('payments')
-      .select('amount')
-      .eq('partner_id', partnerId)
-      .lt('payment_date', from);
-      
-    if (err4) throw err4;
+    // 期間內有出貨或有收款的客戶，才算「有對帳單」
+    const partnerIds = [...new Set([...linesByPartner.keys(), ...paymentsByPartner.keys()])];
 
-    // Calculate totals
-    const currentSalesTotal = lines.reduce((sum, line) => sum + Number(line.subtotal), 0);
-    const currentPaidTotal = currentPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-    
-    const prevSalesTotal = prevSales.reduce((sum, line) => sum + Number(line.subtotal), 0);
-    const prevPaidTotal = prevPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-    const prevBalance = prevSalesTotal - prevPaidTotal;
-    
-    const totalBalance = prevBalance + currentSalesTotal - currentPaidTotal;
+    if (partnerIds.length === 0) {
+      renderEmpty(from, to);
+      return;
+    }
 
-    // Render Header
-    document.getElementById('st-partner-no').textContent = partner.partner_no || '';
-    document.getElementById('st-partner-name').textContent = partner.name || '';
-    document.getElementById('st-partner-tax').textContent = partner.tax_id || '';
-    document.getElementById('st-partner-phone').textContent = partner.phone || '';
-    document.getElementById('st-partner-address').textContent = partner.address || '';
-    document.getElementById('st-date-range').textContent = `${formatDate(from)} ~ ${formatDate(to)}`;
+    // 3. 客戶基本資料
+    const { data: partners, error: errPartners } = await sb
+      .from('partners')
+      .select('*')
+      .in('id', partnerIds);
+    if (errPartners) throw errPartners;
 
-    // Render Lines
-    const tbody = document.getElementById('st-lines');
-    if (lines.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center">此期間無出貨紀錄</td></tr>';
-    } else {
-      let lastOrderNo = null;
-      tbody.innerHTML = lines.map(line => {
+    // 4. 期前出貨與期前收款（計算期前累計應收）
+    const [prevSalesRes, prevPaymentsRes] = await Promise.all([
+      sb.from('statement_line_view')
+        .select('partner_id, subtotal')
+        .in('partner_id', partnerIds)
+        .lt('order_date', from),
+      sb.from('payments')
+        .select('partner_id, amount')
+        .in('partner_id', partnerIds)
+        .lt('payment_date', from)
+    ]);
+    if (prevSalesRes.error) throw prevSalesRes.error;
+    if (prevPaymentsRes.error) throw prevPaymentsRes.error;
+
+    const prevSalesByPartner = groupBy(prevSalesRes.data || [], 'partner_id');
+    const prevPaymentsByPartner = groupBy(prevPaymentsRes.data || [], 'partner_id');
+
+    const customers = partners
+      .map(partner => {
+        const partnerLines = linesByPartner.get(partner.id) || [];
+        const currentSales = sum(partnerLines, 'subtotal');
+        const currentPaid = sum(paymentsByPartner.get(partner.id) || [], 'amount');
+        const prevBalance =
+          sum(prevSalesByPartner.get(partner.id) || [], 'subtotal') -
+          sum(prevPaymentsByPartner.get(partner.id) || [], 'amount');
+
+        return {
+          partner,
+          lines: partnerLines,
+          currentSales,
+          currentPaid,
+          prevBalance,
+          totalBalance: prevBalance + currentSales - currentPaid
+        };
+      })
+      .sort((a, b) => (a.partner.name || '').localeCompare(b.partner.name || '', 'zh-Hant'));
+
+    renderStatements(customers, from, to);
+  } catch (error) {
+    console.error('Error searching statements:', error);
+    showToast('查詢對帳單失敗: ' + error.message, 'error');
+  } finally {
+    btnSearch.disabled = false;
+  }
+}
+
+function renderEmpty(from, to) {
+  activePartnerId = null;
+  selectedIds = new Set();
+  partnerCount = 0;
+  tabsEl.innerHTML = '';
+  statementArea.innerHTML = '';
+  toolbarEl.hidden = true;
+  hintEl.hidden = false;
+  hintEl.textContent = `${formatDate(from)} ~ ${formatDate(to)} 期間內沒有任何客戶的對帳單。`;
+  btnPrintSelected.disabled = true;
+  btnPrintAll.disabled = true;
+  syncSelectionUI();
+}
+
+function renderStatements(customers, from, to) {
+  hintEl.hidden = true;
+  toolbarEl.hidden = false;
+
+  partnerCount = customers.length;
+  selectedIds = new Set(customers.map(c => c.partner.id));
+
+  tabsEl.innerHTML = customers.map((customer, index) => {
+    const id = escapeHtml(customer.partner.id);
+    return `
+      <div class="statement-tab${index === 0 ? ' is-active' : ''}" data-partner-id="${id}">
+        <input type="checkbox"
+               class="tab-check"
+               data-partner-id="${id}"
+               checked
+               aria-label="選取 ${escapeHtml(customer.partner.name)} 以供列印">
+        <button type="button"
+                class="tab-label"
+                role="tab"
+                id="tab-${id}"
+                aria-selected="${index === 0}"
+                aria-controls="panel-${id}"
+                data-partner-id="${id}">
+          <span>${escapeHtml(customer.partner.name)}</span>
+          <span class="tab-balance">${escapeHtml(formatCurrency(customer.totalBalance))}</span>
+        </button>
+      </div>
+    `;
+  }).join('');
+
+  statementArea.innerHTML = customers.map((customer, index) =>
+    renderStatementSection(customer, from, to, index === 0)
+  ).join('');
+
+  activePartnerId = customers[0].partner.id;
+  btnPrintAll.disabled = false;
+  syncSelectionUI();
+}
+
+function syncSelectionUI() {
+  const count = selectedIds.size;
+
+  btnPrintSelected.disabled = count === 0;
+  btnPrintSelected.textContent = count > 0 ? `列印選取（${count}）` : '列印選取';
+  selectCountEl.textContent = partnerCount > 0 ? `已選 ${count} / ${partnerCount} 家` : '';
+
+  selectAllEl.checked = partnerCount > 0 && count === partnerCount;
+  selectAllEl.indeterminate = count > 0 && count < partnerCount;
+}
+
+function toggleSelection(partnerId, isSelected) {
+  if (isSelected) selectedIds.add(partnerId);
+  else selectedIds.delete(partnerId);
+  syncSelectionUI();
+}
+
+function toggleSelectAll(isSelected) {
+  const checkboxes = tabsEl.querySelectorAll('.tab-check');
+  selectedIds = isSelected
+    ? new Set([...checkboxes].map(cb => cb.dataset.partnerId))
+    : new Set();
+  checkboxes.forEach(cb => { cb.checked = isSelected; });
+  syncSelectionUI();
+}
+
+function renderStatementSection(customer, from, to, isActive) {
+  const { partner, lines, prevBalance, currentSales, currentPaid, totalBalance } = customer;
+
+  let lastOrderNo = null;
+  const rows = lines.length === 0
+    ? '<tr><td colspan="8" class="text-center">此期間無出貨紀錄</td></tr>'
+    : lines.map(line => {
         const showOrderInfo = line.order_no !== lastOrderNo;
         lastOrderNo = line.order_no;
-        
         return `
           <tr>
-            <td>${showOrderInfo ? formatDate(line.order_date) : ''}</td>
-            <td>${showOrderInfo ? line.order_no : ''}</td>
-            <td>${line.product_name}</td>
-            <td>${line.spec || ''}</td>
-            <td>${line.qty}</td>
-            <td>${line.unit || ''}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.unit_price)}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.subtotal)}</td>
+            <td>${showOrderInfo ? escapeHtml(formatDate(line.order_date)) : ''}</td>
+            <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
+            <td>${escapeHtml(line.product_name)}</td>
+            <td>${escapeHtml(line.spec || '')}</td>
+            <td>${escapeHtml(line.qty)}</td>
+            <td>${escapeHtml(line.unit || '')}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.unit_price))}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.subtotal))}</td>
           </tr>
         `;
       }).join('');
-    }
 
-    // Render Footer
-    document.getElementById('st-prev-balance').textContent = formatCurrency(prevBalance);
-    document.getElementById('st-current-sales').textContent = formatCurrency(currentSalesTotal);
-    document.getElementById('st-current-paid').textContent = formatCurrency(currentPaidTotal);
-    document.getElementById('st-total-balance').textContent = formatCurrency(totalBalance);
+  return `
+    <section class="statement-section${isActive ? ' is-active' : ''}"
+             id="panel-${escapeHtml(partner.id)}"
+             role="tabpanel"
+             aria-labelledby="tab-${escapeHtml(partner.id)}"
+             data-partner-id="${escapeHtml(partner.id)}"
+             ${isActive ? '' : 'hidden'}>
+      <div class="statement-preview">
+        <div class="statement-header">
+          <h1>藝境裝潢材料行</h1>
+          <h2>應收帳款明細表</h2>
+        </div>
 
-    statementArea.style.display = 'block';
-    btnPrint.disabled = false;
-    
-  } catch (error) {
-    console.error('Error generating statement:', error);
-    showToast('產生對帳單失敗: ' + error.message, 'error');
+        <div class="customer-info">
+          <div>
+            <p><strong>客戶編號：</strong>${escapeHtml(partner.partner_no || '')}</p>
+            <p><strong>公司名稱：</strong>${escapeHtml(partner.name || '')}</p>
+            <p><strong>統一編號：</strong>${escapeHtml(partner.tax_id || '')}</p>
+          </div>
+          <div>
+            <p><strong>聯絡電話：</strong>${escapeHtml(partner.phone || '')}</p>
+            <p><strong>聯絡地址：</strong>${escapeHtml(partner.address || '')}</p>
+            <p><strong>對帳期間：</strong>${escapeHtml(formatDate(from))} ~ ${escapeHtml(formatDate(to))}</p>
+          </div>
+        </div>
+
+        <table class="statement-table">
+          <thead>
+            <tr>
+              <th>日期</th>
+              <th>單號</th>
+              <th>品名</th>
+              <th>規格</th>
+              <th>數量</th>
+              <th>單位</th>
+              <th>單價</th>
+              <th>金額</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+
+        <div class="statement-footer">
+          <table class="totals-table">
+            <tbody>
+              <tr><th>期前累計應收</th><td>${escapeHtml(formatCurrency(prevBalance))}</td></tr>
+              <tr><th>本期應收</th><td>${escapeHtml(formatCurrency(currentSales))}</td></tr>
+              <tr><th>本期收款</th><td>${escapeHtml(formatCurrency(currentPaid))}</td></tr>
+              <tr>
+                <th class="grand-total">合計應收</th>
+                <td class="grand-total">${escapeHtml(formatCurrency(totalBalance))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function selectPartner(partnerId) {
+  activePartnerId = partnerId;
+
+  tabsEl.querySelectorAll('.statement-tab').forEach(tab => {
+    tab.classList.toggle('is-active', tab.dataset.partnerId === partnerId);
+  });
+  tabsEl.querySelectorAll('.tab-label').forEach(label => {
+    label.setAttribute('aria-selected', String(label.dataset.partnerId === partnerId));
+  });
+
+  statementArea.querySelectorAll('.statement-section').forEach(section => {
+    const isActive = section.dataset.partnerId === partnerId;
+    section.classList.toggle('is-active', isActive);
+    section.hidden = !isActive;
+  });
+}
+
+function applySelectionToSections() {
+  statementArea.querySelectorAll('.statement-section').forEach(section => {
+    section.classList.toggle('is-selected', selectedIds.has(section.dataset.partnerId));
+  });
+}
+
+function printWithMode(mode) {
+  document.body.classList.add(mode);
+
+  // 不依賴 afterprint：部分瀏覽器在取消列印時不會觸發，
+  // class 殘留會讓畫面卡在列印模式。
+  let done = false;
+  const cleanup = () => {
+    if (done) return;
+    done = true;
+    document.body.classList.remove(mode);
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+
+  try {
+    window.print();
+  } finally {
+    setTimeout(cleanup, 0);
   }
 }
 
 function setupEventListeners() {
-  btnGenerate.addEventListener('click', generateStatement);
-  btnPrint.addEventListener('click', () => {
-    window.print();
+  btnSearch.addEventListener('click', searchStatements);
+
+  tabsEl.addEventListener('click', event => {
+    const label = event.target.closest('.tab-label');
+    if (label) selectPartner(label.dataset.partnerId);
   });
+
+  tabsEl.addEventListener('change', event => {
+    const check = event.target.closest('.tab-check');
+    if (check) toggleSelection(check.dataset.partnerId, check.checked);
+  });
+
+  // 用 click 而非 change：半選（indeterminate）狀態下要能一次全選，
+  // 只讀 checked 會讓「半選時點一下」的結果不符直覺。
+  selectAllEl.addEventListener('click', () => toggleSelectAll(selectedIds.size < partnerCount));
+
+  btnPrintSelected.addEventListener('click', () => {
+    if (selectedIds.size === 0) return;
+    applySelectionToSections();
+    printWithMode('print-selected');
+  });
+
+  btnPrintAll.addEventListener('click', () => printWithMode('print-all'));
 }
 
 document.addEventListener('DOMContentLoaded', init);
