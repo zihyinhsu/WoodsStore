@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentPage = 1;
@@ -140,13 +140,18 @@ function renderOrdersTable() {
     'paid': '<span class="text-success">已付款</span>'
   };
 
-  const paymentSelect = (order) => `
-    <select class="form-control payment-select" data-id="${order.id}"
-            style="padding: 0.25rem 0.5rem; font-size: 0.85rem; width: auto;">
-      <option value="unpaid" ${order.payment_status === 'unpaid' ? 'selected' : ''}>未付款</option>
-      <option value="partial" ${order.payment_status === 'partial' ? 'selected' : ''}>部分付款</option>
-      <option value="paid" ${order.payment_status === 'paid' ? 'selected' : ''}>已付款</option>
-    </select>`;
+  // 付款狀態由收款紀錄推導（order_payment_summary_view），不可直接編輯。
+  // 點擊導向收款管理並帶 order_id，讓使用者直接看到／建立對應的收款。
+  const paymentLink = (order) => {
+    const label = paymentMap[order.payment_status] || paymentMap['unpaid'];
+    const paid = Number(order.paid_amount || 0);
+    const detail = order.payment_status === 'partial'
+      ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已收 ${formatCurrency(paid)}</span>`
+      : '';
+    return `
+      <a href="payments.html?order_id=${order.id}" class="payment-link"
+         title="查看此單據的收款紀錄">${label}${detail}</a>`;
+  };
 
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
@@ -157,7 +162,7 @@ function renderOrdersTable() {
       <td>${order.partner_name || '-'}</td>
       <td>${order.item_count}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
-      <td>${order.status === 'confirmed' ? paymentSelect(order) : paymentMap[order.payment_status]}</td>
+      <td>${order.type === 'sale' && order.status === 'confirmed' ? paymentLink(order) : '-'}</td>
       <td>
         ${order.status === 'draft' ?
           `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
@@ -179,7 +184,7 @@ function renderOrdersTable() {
       if (e.target.classList.contains('btn-void')) return;
       if (e.target.classList.contains('btn-confirm')) return;
       if (e.target.classList.contains('btn-edit')) return;
-      if (e.target.classList.contains('payment-select')) return;
+      if (e.target.closest('.payment-link')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
     });
   });
@@ -199,13 +204,6 @@ function renderOrdersTable() {
       if (confirm('確定要讓此草稿生效嗎？生效後將計入庫存。')) {
         await confirmOrder(e.target.getAttribute('data-id'));
       }
-    });
-  });
-
-  document.querySelectorAll('.payment-select').forEach(sel => {
-    sel.addEventListener('click', (e) => e.stopPropagation());
-    sel.addEventListener('change', async (e) => {
-      await updatePaymentStatus(e.target.getAttribute('data-id'), e.target.value);
     });
   });
 
@@ -361,21 +359,6 @@ async function confirmOrder(orderId) {
     loadOrders();
   } catch (error) {
     showToast('確認失敗: ' + error.message, 'error');
-  }
-}
-
-async function updatePaymentStatus(orderId, paymentStatus) {
-  try {
-    const { error } = await sb.rpc('update_order_meta', {
-      p_order_id: orderId,
-      p_payment_status: paymentStatus
-    });
-    if (error) throw error;
-
-    showToast('付款狀態已更新', 'success');
-  } catch (error) {
-    showToast('更新失敗：' + toErrorMessage(error), 'error');
-    loadOrders();
   }
 }
 
@@ -794,4 +777,4 @@ function setupEventListeners() {
   bindSubmitOnce('btn-save-draft', () => saveOrder('draft'));
 }
 
-document.addEventListener('DOMContentLoaded', init);
+onReady(init);

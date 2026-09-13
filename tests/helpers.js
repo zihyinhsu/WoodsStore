@@ -3,7 +3,7 @@ const { chromium } = require('playwright');
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4173';
 
 const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];
-const WRITE_RPCS = /\/rpc\/(create_order|update_draft_order|update_order_meta|confirm_order|void_order)/;
+const WRITE_RPCS = /\/rpc\/(create_order|update_draft_order|update_order_meta|confirm_order|void_order|save_payment_with_allocations)/;
 
 /**
  * 開啟瀏覽器並預設攔截所有寫入請求。

@@ -19,6 +19,52 @@
     .balance-table .balance-amount.positive {
       color: var(--warning);
     }
+
+    /* Search Bar Styles */
+    .search-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: flex-end;
+    }
+    .search-bar .form-group {
+      margin-bottom: 0;
+      flex: 0 0 auto;
+    }
+    .search-bar .form-group label {
+      font-size: 0.8rem;
+      margin-bottom: 0.25rem;
+    }
+    .search-bar .form-control {
+      padding: 0.4rem 0.6rem;
+      height: 38px;
+      font-size: 0.9rem;
+    }
+    .search-bar .btn {
+      padding: 0 1rem;
+      white-space: nowrap;
+      height: 38px;
+      font-size: 0.9rem;
+    }
+
+    /* Field Widths */
+    .search-date-group { width: 150px; }
+    .search-select-group { width: 150px; }
+    .search-keyword-group {
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    @media (max-width: 768px) {
+      .search-date-group, .search-select-group, .search-keyword-group {
+        width: 100%;
+        flex: 1 1 100%;
+      }
+      .search-bar .btn {
+        width: 100%;
+        flex: 1 1 100%;
+      }
+    }
   </style>
   <script>
     if (localStorage.getItem('sidebar-collapsed') === 'true') {
@@ -87,14 +133,49 @@
               <th>名稱</th>
               <th>出貨總額</th>
               <th>已收款</th>
+              <th>未分配預收</th>
               <th>應收餘額</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="5" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="6" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>
+    </div>
+
+    <div class="glass-card mb-4">
+      <div class="search-bar">
+        <div class="form-group search-date-group">
+          <label>開始日期</label>
+          <input type="date" id="search-date-from" class="form-control">
+        </div>
+        <div class="form-group search-date-group">
+          <label>結束日期</label>
+          <input type="date" id="search-date-to" class="form-control">
+        </div>
+        <div class="form-group search-select-group">
+          <label>客戶</label>
+          <select id="search-partner" class="form-control">
+            <option value="all">全部</option>
+          </select>
+        </div>
+        <div class="form-group search-select-group">
+          <label>收款方式</label>
+          <select id="search-method" class="form-control">
+            <option value="all">全部</option>
+            <option value="cash">現金</option>
+            <option value="transfer">匯款</option>
+            <option value="check">支票</option>
+          </select>
+        </div>
+        <div class="form-group search-keyword-group">
+          <label>關鍵字搜尋</label>
+          <input type="text" id="search-keyword" class="form-control" placeholder="收款單號、客戶、沖帳單號、備註...">
+        </div>
+        <button class="btn btn-outline" id="btn-reset-search">清除條件</button>
+      </div>
+      <div id="order-filter-notice" class="mt-3" style="display: none;"></div>
     </div>
 
     <div class="glass-card">
@@ -107,13 +188,14 @@
               <th>收款單號</th>
               <th>客戶</th>
               <th>金額</th>
+              <th>已沖帳</th>
               <th>方式</th>
               <th>備註</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="7" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="8" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -140,26 +222,33 @@
             <select id="payment-partner" class="form-control" required>
               <option value="">請選擇...</option>
             </select>
-          </div>
-          <div class="form-group">
-            <label>沖帳出貨單</label>
-            <div style="font-size: 0.85rem; color: var(--text-light); margin-bottom: 0.5rem;">勾選此筆收款要核銷的出貨單（可複選）</div>
-            <div id="payment-orders-list" style="max-height: 200px; overflow-y: auto; border: 2px solid var(--border); border-radius: 0; padding: 0.5rem; margin-bottom: 0.5rem;">
-              <div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>
-            </div>
-            <div style="text-align: right; font-weight: bold; font-size: 0.9rem;">
-              已勾選金額：<span id="allocated-total" style="font-family: 'Roboto', sans-serif;">$0</span>
-            </div>
+            <div id="partner-balance-hint" class="mt-2" style="font-size: 0.85rem; display: none;"></div>
           </div>
           <div class="form-group">
             <label>收款日期</label>
             <input type="date" id="payment-date" class="form-control" required>
           </div>
           <div class="form-group">
-            <label>金額</label>
-            <div class="d-flex" style="gap: 0.5rem;">
-              <input type="number" id="payment-amount" class="form-control" min="1" step="0.01" required style="flex: 1;">
-              <button type="button" id="btn-copy-allocated" class="btn btn-outline" style="white-space: nowrap; padding: 0 0.5rem; font-size: 0.85rem;">勾選金額帶入</button>
+            <label>收款金額</label>
+            <input type="number" id="payment-amount" class="form-control" min="0.01" step="0.01" required>
+            <div class="mt-2" style="font-size: 0.85rem; color: var(--text-muted);">
+              先填實收金額，再於下方分配到各張出貨單。
+            </div>
+          </div>
+          <div class="form-group">
+            <label>沖帳出貨單</label>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+              勾選要核銷的出貨單，金額預設帶入未收餘額，可自行調整為部分沖帳。
+            </div>
+            <div id="payment-orders-list" style="max-height: 240px; overflow-y: auto; border: 2px solid var(--border-color); padding: 0.5rem; margin-bottom: 0.5rem;">
+              <div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>
+            </div>
+            <div class="d-flex justify-between" style="font-size: 0.9rem;">
+              <button type="button" id="btn-auto-allocate" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">自動分配</button>
+              <div style="text-align: right;">
+                <div>已分配：<strong id="allocated-total" style="font-family: 'Roboto', sans-serif;">$0</strong></div>
+                <div id="unallocated-hint" class="text-muted" style="font-size: 0.85rem;"></div>
+              </div>
             </div>
           </div>
           <div class="form-group">
