@@ -11,7 +11,7 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
 
   // 四個本月指標都要算出金額，而非停在初始的 "-"
   for (const [label, id] of [
-    ['本月收益', '#stat-month-revenue'],
+    ['本月出貨收益', '#stat-month-revenue'],
     ['本月進貨支出', '#stat-month-expense'],
     ['本月出貨成本', '#stat-month-cost'],
     ['本月毛利', '#stat-month-profit']
