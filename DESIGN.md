@@ -107,8 +107,9 @@
 
 - 結構：`.stat-label`（說明）+ `.stat-value`（數值）
 - 變體：純展示；或包成 `a.stat-link` 變可點擊（hover 位移 1px + 加深陰影）
-- 狀態：可點擊版本需具 hover 與 `:focus-visible` 外框
-- 用途：總覽頁指標
+- 狀態：可點擊版本需具 hover 與 `:focus-visible` 外框（已實作於 `css/style.css`）
+- 樣式位置：元件樣式統一放在 `css/style.css`。數值顏色由 `.text-success` / `.text-danger` 等 utility class 決定，因此 utility 必須宣告在元件之後，以確保正確的 cascade 覆蓋。
+- 用途：總覽頁指標（註：可點擊的 `a.stat-link` 變體目前未使用，保留作為擴充用途）
 
 ### Button（`.btn`）
 

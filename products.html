@@ -47,36 +47,36 @@
       background: #fff;
       font-family: 'Roboto', sans-serif;
     }
-    .stat-cards {
+    .metric-cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
       gap: 1rem;
       margin-bottom: 1.5rem;
     }
-    .stat-card {
+    .metric-card {
       background: #f5f4f1;
       border: 2px solid #1f1f1f;
       padding: 1rem;
       border-radius: 0;
       box-shadow: 2px 2px 0 rgba(0,0,0,0.1);
     }
-    .stat-card-title {
+    .metric-card-title {
       font-size: 0.875rem;
       color: #666;
       margin-bottom: 0.5rem;
       font-weight: 600;
     }
-    .stat-card-value {
+    .metric-card-value {
       font-family: 'Bebas Neue', sans-serif;
       font-size: 2rem;
       color: #1f1f1f;
       line-height: 1;
       margin-bottom: 0.25rem;
     }
-    .stat-card-value.negative {
+    .metric-card-value.negative {
       color: #dc3545;
     }
-    .stat-card-subtitle {
+    .metric-card-subtitle {
       font-size: 0.75rem;
       color: #888;
     }
@@ -303,6 +303,13 @@
           </div>
         </div>
         <div class="cost-analysis-content">載入中...</div>
+        <!-- 分頁列放在 cost-analysis-content 之外：該區塊每次查詢都會整個重繪，
+             按鈕若放在裡面，綁定的事件監聽器會跟著舊 DOM 一起被丟掉。 -->
+        <div class="pagination" id="cost-pagination" hidden>
+          <button class="btn btn-outline" id="btn-cost-prev-page" disabled>上一頁</button>
+          <span id="cost-page-info">第 1 頁</span>
+          <button class="btn btn-outline" id="btn-cost-next-page" disabled>下一頁</button>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-outline close-btn">關閉</button>

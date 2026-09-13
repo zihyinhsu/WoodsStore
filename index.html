@@ -9,34 +9,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
   <style>
-    .stat-card {
-      text-align: center;
-      padding: 2rem 1rem;
-    }
-    .stat-value {
-      font-size: 3rem;
-      color: var(--primary);
-      font-family: 'Bebas Neue', sans-serif;
-      margin-top: 0.5rem;
-      letter-spacing: 1px;
-    }
-    .stat-value.is-money {
-      font-size: 2.25rem;
-    }
-    .stat-label {
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-    a.stat-link {
-      text-decoration: none;
-      color: inherit;
-      display: block;
-      cursor: pointer;
-    }
-    a.stat-link:hover {
-      transform: translate(-1px, -1px);
-      box-shadow: 5px 5px 0 rgba(31, 31, 31, 0.2);
-    }
     .product-link {
       color: var(--primary);
       font-weight: 600;
@@ -54,21 +26,6 @@
     .cost-controls .form-group {
       margin-bottom: 0;
     }
-    .movement-only-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      min-height: 44px;
-      cursor: pointer;
-      user-select: none;
-      font-weight: 600;
-      font-size: 0.9rem;
-    }
-    .movement-only-label input {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-    }
     .cost-note {
       color: var(--text-muted);
       font-size: 0.85rem;
@@ -82,7 +39,7 @@
     }
     #cost-table .num {
       font-family: 'Roboto', sans-serif;
-      text-align: right;
+      text-align: left;
       white-space: nowrap;
     }
     .cost-totals {
@@ -112,8 +69,8 @@
       font-weight: 700;
     }
     @media (max-width: 1024px) {
-      .grid-cols-3 {
-        grid-template-columns: 1fr;
+      .grid-cols-4 {
+        grid-template-columns: repeat(2, 1fr);
       }
       .cost-totals {
         grid-template-columns: repeat(2, 1fr);
@@ -179,30 +136,23 @@
   <div class="container">
     <h2 class="mb-4">系統總覽</h2>
     
-    <div class="grid grid-cols-3 gap-4 mb-4">
+    <div class="grid grid-cols-4 gap-4 mb-4">
       <div class="glass-card stat-card">
         <div class="stat-label">本月收益</div>
         <div class="stat-value is-money text-success" id="stat-month-revenue">-</div>
       </div>
       <div class="glass-card stat-card">
-        <div class="stat-label">本月支出</div>
+        <div class="stat-label">本月進貨支出</div>
         <div class="stat-value is-money text-danger" id="stat-month-expense">-</div>
       </div>
       <div class="glass-card stat-card">
-        <div class="stat-label">本月成本</div>
+        <div class="stat-label">本月出貨成本</div>
         <div class="stat-value is-money" id="stat-month-cost">-</div>
       </div>
-    </div>
-
-    <div class="grid grid-cols-2 gap-4 mb-4">
-      <a href="products.html" class="glass-card stat-card stat-link">
-        <div class="stat-label">商品總數</div>
-        <div class="stat-value" id="stat-total-products">-</div>
-      </a>
-      <a href="products.html#view=low-stock" class="glass-card stat-card stat-link">
-        <div class="stat-label">庫存不足</div>
-        <div class="stat-value text-danger" id="stat-low-stock">-</div>
-      </a>
+      <div class="glass-card stat-card">
+        <div class="stat-label">本月毛利</div>
+        <div class="stat-value is-money" id="stat-month-profit">-</div>
+      </div>
     </div>
 
     <h3 class="mb-3">進出貨成本分析</h3>
@@ -217,10 +167,6 @@
         <input type="date" id="cost-date-to" class="form-control">
       </div>
       <button class="btn btn-primary" id="btn-cost-search">查詢</button>
-      <label class="movement-only-label">
-        <input type="checkbox" id="cost-movement-only" checked>
-        <span>只顯示有進出貨的商品</span>
-      </label>
     </div>
 
     <div class="glass-card">
@@ -245,12 +191,12 @@
 
       <div class="cost-totals" id="cost-totals" hidden>
         <div class="cost-total-item">
-          <span class="cost-total-label">期間進貨金額</span>
-          <span class="cost-total-value" id="cost-total-purchase">-</span>
-        </div>
-        <div class="cost-total-item">
           <span class="cost-total-label">期間出貨金額</span>
           <span class="cost-total-value" id="cost-total-sale">-</span>
+        </div>
+        <div class="cost-total-item">
+          <span class="cost-total-label">期間進貨金額</span>
+          <span class="cost-total-value" id="cost-total-purchase">-</span>
         </div>
         <div class="cost-total-item">
           <span class="cost-total-label">期間出貨成本</span>
@@ -270,7 +216,7 @@
 
       <p class="cost-note">
         出貨成本以期間內的進貨均價估算（單據未保存出貨當下的成本），期間內未進貨的商品則採現行進價；
-        金額僅計已確認的進貨與出貨單，不含整單折讓與稅額。
+        金額僅計已確認的進貨與出貨單，不含整單折讓與稅額。上方卡片為本月淨額（含整單折讓與稅額），下方合計為所選期間的明細小計（不含折讓與稅額），因此兩組數字不會相等。
       </p>
     </div>
   </div>

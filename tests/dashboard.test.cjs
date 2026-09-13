@@ -9,11 +9,12 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
 
   await goto(page, 'index.html');
 
-  // 三個本月指標都要算出金額，而非停在初始的 "-"
+  // 四個本月指標都要算出金額，而非停在初始的 "-"
   for (const [label, id] of [
     ['本月收益', '#stat-month-revenue'],
-    ['本月支出', '#stat-month-expense'],
-    ['本月成本', '#stat-month-cost']
+    ['本月進貨支出', '#stat-month-expense'],
+    ['本月出貨成本', '#stat-month-cost'],
+    ['本月毛利', '#stat-month-profit']
   ]) {
     const value = await text(page, id);
     r.info(label, value);
@@ -25,10 +26,9 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   r.check('最新單據已移除', await page.locator('#recent-orders-table').count(), 0);
   r.check('庫存不足清單已移至商品頁', await page.locator('#low-stock-table').count(), 0);
 
-  // 庫存不足卡片可直達商品頁的對應分頁
-  const lowStockHref = await page.locator('a.stat-link[href*="low-stock"]').getAttribute('href');
-  r.info('庫存不足連結', lowStockHref);
-  r.check('庫存不足卡片連到商品頁分頁', lowStockHref, 'products.html#view=low-stock');
+  // 商品總數與庫存不足卡片已移除
+  r.check('商品總數卡片已移除', await page.locator('#stat-total-products').count(), 0);
+  r.check('庫存不足卡片已移除', await page.locator('#stat-low-stock').count(), 0);
 
   // 日期區間預設為本月一日到月底
   const today = new Date();

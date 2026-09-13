@@ -528,6 +528,48 @@ tbody tr:hover {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Stat Card */
+.stat-card {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+/* 必須宣告在 Utilities 之前，因為 .text-success / .text-danger 只有單一 class 的權重，
+   若此處宣告在後，Vite build 時會導致顏色被覆蓋。 */
+.stat-value {
+  font-size: 3rem;
+  color: var(--primary);
+  font-family: 'Bebas Neue', sans-serif;
+  margin-top: 0.5rem;
+  letter-spacing: 1px;
+}
+
+.stat-value.is-money {
+  font-size: 2.25rem;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+a.stat-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  cursor: pointer;
+}
+
+a.stat-link:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 5px 5px 0 rgba(31, 31, 31, 0.2);
+}
+
+a.stat-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Utilities */
 .d-flex { display: flex; }
 .justify-between { justify-content: space-between; }
