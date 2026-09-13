@@ -15,6 +15,7 @@ const searchDateFrom = document.getElementById('search-date-from');
 const searchDateTo = document.getElementById('search-date-to');
 const searchType = document.getElementById('search-type');
 const searchStatus = document.getElementById('search-status');
+const searchPayment = document.getElementById('search-payment');
 const searchKeyword = document.getElementById('search-keyword');
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
@@ -31,6 +32,7 @@ async function init() {
   searchDateFrom.value = urlParams.get('from') || defaultRange.from;
   searchType.value = urlParams.get('type') || 'all';
   searchStatus.value = urlParams.get('status') || hashParams.get('status') || 'active';
+  searchPayment.value = urlParams.get('payment') || hashParams.get('payment') || 'all';
   searchKeyword.value = urlParams.get('q') || hashParams.get('q') || '';
   currentPage = parseInt(urlParams.get('page')) || 1;
 
@@ -62,6 +64,7 @@ function updateUrlParams() {
   if (searchDateTo.value) urlParams.set('to', searchDateTo.value);
   if (searchType.value !== 'all') urlParams.set('type', searchType.value);
   if (searchStatus.value !== 'active') urlParams.set('status', searchStatus.value);
+  if (searchPayment.value !== 'all') urlParams.set('payment', searchPayment.value);
   if (searchKeyword.value) urlParams.set('q', searchKeyword.value);
   if (currentPage > 1) urlParams.set('page', currentPage);
   
@@ -86,6 +89,15 @@ async function loadOrders() {
       query = query.in('status', ['draft', 'confirmed']);
     } else if (searchStatus.value !== 'all') {
       query = query.eq('status', searchStatus.value);
+    }
+
+    // 付款狀態是推導值（order_search_view 直接輸出 order_payment_summary_view 的結果），
+    // 因此能下推成 SQL 條件，不必把資料撈回瀏覽器過濾，伺服器端分頁與 count 才會正確。
+    // view 對「非已確認出貨單」給 null，所以下了條件就自動排除進貨／調整／草稿／作廢單。
+    if (searchPayment.value === 'outstanding') {
+      query = query.in('payment_status', ['unpaid', 'partial']);
+    } else if (searchPayment.value !== 'all') {
+      query = query.eq('payment_status', searchPayment.value);
     }
 
     if (searchKeyword.value) {
@@ -670,7 +682,7 @@ function setupEventListeners() {
     loadOrders();
   }, 300);
 
-  [searchDateFrom, searchDateTo, searchType, searchStatus].forEach(el => {
+  [searchDateFrom, searchDateTo, searchType, searchStatus, searchPayment].forEach(el => {
     el.addEventListener('change', () => { currentPage = 1; loadOrders(); });
   });
   
