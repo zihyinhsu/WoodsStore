@@ -1,14 +1,17 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, debounce, round2, totalPages, escapeHtml } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
 let currentPayments = [];
 let partnersCache = [];
-let balanceCache = [];
+let balancePage = 1;
+let balanceTotal = 0;
 let orderFilterId = null;
 let orderFilterNo = null;
+let autoExpanded = false;
+let detailToken = null;
 
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
@@ -20,6 +23,12 @@ const unallocatedHint = document.getElementById('unallocated-hint');
 const partnerBalanceHint = document.getElementById('partner-balance-hint');
 const btnAutoAllocate = document.getElementById('btn-auto-allocate');
 const orderFilterNotice = document.getElementById('order-filter-notice');
+
+const balanceAsOfHint = document.getElementById('balance-asof-hint');
+const toggleSettled = document.getElementById('toggle-settled');
+const balanceKeyword = document.getElementById('balance-keyword');
+const btnBalancePrev = document.getElementById('btn-balance-prev');
+const btnBalanceNext = document.getElementById('btn-balance-next');
 
 const searchDateFrom = document.getElementById('search-date-from');
 const searchDateTo = document.getElementById('search-date-to');
@@ -39,8 +48,11 @@ async function init() {
   orderFilterId = urlParams.get('order_id');
   if (orderFilterId) await loadOrderFilterNo();
 
-  searchDateFrom.value = urlParams.get('from') || '';
-  searchDateTo.value = urlParams.get('to') || '';
+  // 指定單據時不套預設區間：該單的收款可能發生在 30 天前，
+  // 預設區間會把它濾掉，使用者從單據頁點過來就只看到空表。
+  const defaultRange = orderFilterId ? { from: '', to: '' } : dateRange('last30Days');
+  searchDateFrom.value = urlParams.get('from') || defaultRange.from;
+  searchDateTo.value = urlParams.get('to') || defaultRange.to;
   searchPartner.value = urlParams.get('partner') || 'all';
   searchMethod.value = urlParams.get('method') || 'all';
   searchKeyword.value = urlParams.get('q') || '';
@@ -64,37 +76,101 @@ async function loadPartnersCache() {
   searchPartner.value = keepSelected || 'all';
 }
 
+// 餘額的截止日取搜尋列的「結束日期」，沒填就是今天。
+// 刻意不吃開始日期：應收餘額是累計到某日的快照，不是期間發生額。
+// 若只算區間內的出貨減收款，長期積欠但近期沒下單的客戶會顯示 0，
+// 而他正是最該被追的人。
+function balanceAsOf() {
+  return searchDateTo.value || toDateInputValue(new Date());
+}
+
+function renderBalanceHint(asOf, partnerId) {
+  const scopes = [];
+  if (partnerId !== 'all') scopes.push('已依上方客戶條件篩選');
+  if (balanceKeyword.value.trim()) scopes.push('已套用關鍵字');
+  const scope = scopes.length ? `${scopes.join('、')}，` : '';
+  balanceAsOfHint.textContent = `${scope}統計截至 ${formatDate(asOf)} 的累計金額，不受開始日期影響。`;
+}
+
 async function loadBalances() {
+  const asOf = balanceAsOf();
+  const partnerId = searchPartner.value;
+  renderBalanceHint(asOf, partnerId);
+
   try {
-    const { data, error } = await sb.from('partner_balance_view').select('*').order('partner_no');
+    const from = (balancePage - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    // 指定客戶時一律顯示該客戶，即使已結清：使用者明確選了對象，
+    // 讓他看到空白表格等於死路一條，因此 p_partner_id 壓過 include_settled。
+    const { data, count, error } = await sb
+      .rpc('get_partner_balances', {
+        p_as_of: asOf,
+        p_partner_id: partnerId === 'all' ? null : partnerId,
+        p_include_settled: toggleSettled.checked,
+        p_keyword: balanceKeyword.value.trim() || null
+      }, { count: 'exact' })
+      // 排序在這裡再指定一次，不是多餘的：SQL function 被 inline 後外層會多包
+      // 一層 SELECT，函式內的 ORDER BY 不保證留存，翻頁會出現重複或漏列。
+      .order('partner_no', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to);
+
     if (error) throw error;
 
-    balanceCache = data || [];
+    balanceTotal = count || 0;
+    renderBalancesTable(data || []);
+    updateBalancePagination();
+  } catch (error) {
+    console.error('Error loading balances:', error);
+    showToast('載入餘額失敗：' + toErrorMessage(error), 'error');
+  }
+}
 
-    const tbody = document.querySelector('#balance-table tbody');
-    if (balanceCache.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="6" class="empty-state">無客戶資料</td></tr>';
-      return;
-    }
+function renderBalancesTable(rows) {
+  const tbody = document.querySelector('#balance-table tbody');
 
-    tbody.innerHTML = balanceCache.map(b => `
+  if (rows.length === 0) {
+    const keyword = balanceKeyword.value.trim();
+    const message = keyword
+      ? `找不到符合「${escapeHtml(keyword)}」的客戶。`
+      : toggleSettled.checked
+        ? '無客戶資料'
+        : '所有客戶均已結清，可勾選「顯示已結清客戶」檢視全部。';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${message}</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map(b => {
+    const balance = Number(b.balance);
+    const credit = Number(b.unallocated_credit);
+    return `
       <tr>
         <td>${escapeHtml(b.partner_no || '-')}</td>
         <td>${escapeHtml(b.name)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_sales)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_paid)}</td>
-        <td style="font-family: 'Roboto', sans-serif;" class="${Number(b.unallocated_credit) > 0 ? 'text-warning' : 'text-muted'}">
+        <td style="font-family: 'Roboto', sans-serif;" class="${credit > 0 ? 'text-warning' : 'text-muted'}">
           ${formatCurrency(b.unallocated_credit)}
         </td>
-        <td class="balance-amount ${Number(b.balance) > 0 ? 'positive' : ''}" style="font-family: 'Roboto', sans-serif;">
+        <td class="balance-amount ${balance > 0 ? 'positive' : balance < 0 ? 'negative' : ''}" style="font-family: 'Roboto', sans-serif;">
           ${formatCurrency(b.balance)}
         </td>
       </tr>
-    `).join('');
-  } catch (error) {
-    console.error('Error loading balances:', error);
-    showToast('載入餘額失敗：' + toErrorMessage(error), 'error');
-  }
+    `;
+  }).join('');
+}
+
+function updateBalancePagination() {
+  renderPagination({
+    page: balancePage,
+    total: balanceTotal,
+    pageSize: PAGE_SIZE,
+    unit: '位客戶',
+    pageInfoId: 'balance-page-info',
+    prevId: 'btn-balance-prev',
+    nextId: 'btn-balance-next'
+  });
 }
 
 function updateUrlParams() {
@@ -144,6 +220,7 @@ function renderOrderFilterNotice() {
   document.getElementById('btn-clear-order-filter').addEventListener('click', () => {
     orderFilterId = null;
     orderFilterNo = null;
+    autoExpanded = false;
     currentPage = 1;
     loadPayments();
   });
@@ -177,6 +254,7 @@ async function loadPayments() {
     renderPaymentsTable();
     renderOrderFilterNotice();
     updatePagination();
+    autoExpandFilteredOrder();
   } catch (error) {
     console.error('Error loading payments:', error);
     showToast('載入收款紀錄失敗：' + toErrorMessage(error), 'error');
@@ -193,7 +271,7 @@ function renderPaymentsTable() {
   tbody.innerHTML = currentPayments.map(p => {
     const unallocated = Number(p.unallocated_amount) || 0;
     return `
-    <tr>
+    <tr class="clickable-row" data-id="${escapeHtml(p.id)}">
       <td>${formatDate(p.payment_date)}</td>
       <td>${escapeHtml(p.payment_no)}</td>
       <td>${escapeHtml(p.partner_name || '-')}</td>
@@ -212,8 +290,16 @@ function renderPaymentsTable() {
     </tr>`;
   }).join('');
 
+  document.querySelectorAll('#payments-table .clickable-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return;
+      togglePaymentDetail(row.getAttribute('data-id'), row);
+    });
+  });
+
   document.querySelectorAll('.btn-print').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const payment = currentPayments.find(p => p.id === e.target.getAttribute('data-id'));
       if (payment) printPayment(payment);
     });
@@ -221,6 +307,7 @@ function renderPaymentsTable() {
 
   document.querySelectorAll('.btn-edit-payment').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const payment = currentPayments.find(p => p.id === e.target.getAttribute('data-id'));
       if (payment) openPaymentModal(payment);
     });
@@ -228,6 +315,7 @@ function renderPaymentsTable() {
 
   document.querySelectorAll('.btn-delete-payment').forEach(btn => {
     btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
       const payment = currentPayments.find(p => p.id === e.target.getAttribute('data-id'));
       if (!payment) return;
 
@@ -238,14 +326,119 @@ function renderPaymentsTable() {
   });
 }
 
-function renderPartnerBalanceHint(partnerId) {
+// 從單據頁點付款狀態帶 order_id 進來時，使用者要看的是「這張單被誰沖了、沖多少」，
+// 因此直接展開沖帳明細，省去再點一次。只在單筆結果時自動展開：
+// 多筆時無從判斷該展開哪一筆，逐一展開反而洗版。
+function autoExpandFilteredOrder() {
+  if (!orderFilterId || autoExpanded) return;
+  if (currentPayments.length !== 1) return;
+
+  const row = document.querySelector('#payments-table .clickable-row');
+  if (!row) return;
+
+  autoExpanded = true;
+  togglePaymentDetail(row.getAttribute('data-id'), row);
+}
+
+async function togglePaymentDetail(paymentId, rowElement) {
+  const nextRow = rowElement.nextElementSibling;
+  if (nextRow && nextRow.classList.contains('detail-row')) {
+    nextRow.remove();
+    rowElement.classList.remove('detail-open');
+    detailToken = null;
+    return;
+  }
+
+  // 明細是非同步載入，連點時第二次會在插入前就進來，
+  // 因此用同步標記判定展開狀態，避免重複插入 detail-row。
+  if (rowElement.classList.contains('detail-open')) {
+    rowElement.classList.remove('detail-open');
+    detailToken = null;
+    return;
+  }
+
+  document.querySelectorAll('#payments-table .detail-row').forEach(el => el.remove());
+  document.querySelectorAll('#payments-table .detail-open').forEach(el => el.classList.remove('detail-open'));
+  rowElement.classList.add('detail-open');
+
+  // 每次展開發一個新的 token，插入前比對是否仍是最新的一次。
+  // 只靠 detail-open 旗標不夠：它在請求途中會被下一次點擊清掉，
+  // 第三次點擊便視為全新展開，與第一次的回應疊成兩列明細。
+  const token = Symbol('detail');
+  detailToken = token;
+
+  try {
+    const { data, error } = await sb
+      .from('payment_allocation_view')
+      .select('*')
+      .eq('payment_id', paymentId)
+      .order('order_date');
+
+    if (error) throw error;
+    if (detailToken !== token || !rowElement.classList.contains('detail-open')) return;
+
+    const payment = currentPayments.find(p => p.id === paymentId);
+    const unallocated = Number(payment?.unallocated_amount) || 0;
+    const rows = data || [];
+
+    const body = rows.length === 0
+      ? '<tr><td colspan="4" class="empty-state">此筆收款尚未沖帳，全額列為預收。</td></tr>'
+      : rows.map(a => `
+          <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
+            <td>${formatDate(a.order_date)}</td>
+            <td>${escapeHtml(a.order_no)}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.order_total)}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.allocated_amount)}</td>
+          </tr>`).join('');
+
+    rowElement.insertAdjacentHTML('afterend', `
+      <tr class="detail-row">
+        <td colspan="8" style="padding: 1rem 2rem;">
+          <h4 style="margin: 0 0 0.5rem;">沖帳明細</h4>
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>出貨日期</th>
+                <th>出貨單號</th>
+                <th>單據金額</th>
+                <th>本次沖帳</th>
+              </tr>
+            </thead>
+            <tbody>${body}</tbody>
+          </table>
+          ${unallocated > 0 ? `<p class="text-warning" style="margin: 0.5rem 0 0; font-size: 0.85rem;">未分配 ${formatCurrency(unallocated)}，列為預收。</p>` : ''}
+        </td>
+      </tr>`);
+  } catch (error) {
+    console.error('Error loading allocations:', error);
+    if (detailToken !== token) return;
+    rowElement.classList.remove('detail-open');
+    showToast('載入沖帳明細失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
+// 這裡必須單筆查詢，不能沿用餘額表的資料：餘額表已改為分頁 + 可篩選，
+// 選到不在當頁的客戶會查不到，提示會無聲消失——而那正是決定沖帳金額的依據。
+async function renderPartnerBalanceHint(partnerId) {
   if (!partnerId) {
     partnerBalanceHint.style.display = 'none';
     partnerBalanceHint.innerHTML = '';
     return;
   }
 
-  const balance = balanceCache.find(b => b.id === partnerId);
+  let balance = null;
+  try {
+    const { data, error } = await sb.rpc('get_partner_balances', {
+      p_as_of: null,
+      p_partner_id: partnerId,
+      p_include_settled: true
+    });
+    if (error) throw error;
+    balance = data?.[0] || null;
+  } catch (error) {
+    console.error('Error loading partner balance:', error);
+  }
+
   if (!balance) {
     partnerBalanceHint.style.display = 'none';
     return;
@@ -671,7 +864,9 @@ function runSearch() {
     return;
   }
   currentPage = 1;
+  balancePage = 1;
   loadPayments();
+  loadBalances();
 }
 
 function setupEventListeners() {
@@ -696,16 +891,45 @@ function setupEventListeners() {
   searchKeyword.addEventListener('input', debounce(runSearch, 400));
 
   btnResetSearch.addEventListener('click', () => {
-    searchDateFrom.value = '';
-    searchDateTo.value = '';
+    const defaultRange = dateRange('last30Days');
+    searchDateFrom.value = defaultRange.from;
+    searchDateTo.value = defaultRange.to;
     searchPartner.value = 'all';
     searchMethod.value = 'all';
     searchKeyword.value = '';
+    balanceKeyword.value = '';
     orderFilterId = null;
     orderFilterNo = null;
+    autoExpanded = false;
     currentPage = 1;
+    balancePage = 1;
     loadPayments();
+    loadBalances();
   });
+
+  btnBalancePrev.addEventListener('click', () => {
+    if (balancePage > 1) {
+      balancePage--;
+      loadBalances();
+    }
+  });
+
+  btnBalanceNext.addEventListener('click', () => {
+    if (balancePage < totalPages(balanceTotal)) {
+      balancePage++;
+      loadBalances();
+    }
+  });
+
+  toggleSettled.addEventListener('change', () => {
+    balancePage = 1;
+    loadBalances();
+  });
+
+  balanceKeyword.addEventListener('input', debounce(() => {
+    balancePage = 1;
+    loadBalances();
+  }, 400));
 
   document.getElementById('btn-add-payment').addEventListener('click', () => openPaymentModal());
 

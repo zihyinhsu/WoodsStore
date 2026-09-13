@@ -19,6 +19,84 @@
     .balance-table .balance-amount.positive {
       color: var(--warning);
     }
+    /* 負餘額代表客戶溢付、是我方負債，與一般未收款反向，用不同顏色區隔 */
+    .balance-table .balance-amount.negative {
+      color: var(--danger);
+    }
+
+    .clickable-row {
+      cursor: pointer;
+    }
+    .detail-row {
+      background: rgba(31, 31, 31, 0.03);
+    }
+    .detail-table {
+      width: 100%;
+      background: white;
+      border-radius: 0;
+      border: 2px solid var(--border-color);
+      margin: 0.5rem 0;
+    }
+    .detail-table th, .detail-table td {
+      padding: 0.5rem;
+      font-size: 0.9rem;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .detail-table th {
+      border-bottom: 2px solid var(--border-color);
+    }
+    /* 從單據頁帶 order_id 進來時，標出使用者要找的那張單，
+       一筆收款可能沖多張單，不標很難一眼認出目標。 */
+    .detail-table tr.is-highlighted {
+      background: rgba(246, 173, 85, 0.18);
+      font-weight: 600;
+    }
+
+    .balance-header {
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    /* 應收餘額是全期間累計到截止日的快照，與上方搜尋列的「區間」語意不同，
+       這行提示不可省略，否則兩張表的數字對不起來會被誤判為 bug。 */
+    .balance-asof-hint {
+      margin: 0.25rem 0 0;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+    .balance-controls {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .balance-keyword {
+      width: 240px;
+      height: 38px;
+      padding: 0.4rem 0.6rem;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 768px) {
+      .balance-controls {
+        width: 100%;
+      }
+      .balance-keyword {
+        width: 100%;
+      }
+    }
+    .balance-settled-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      user-select: none;
+    }
+    .balance-settled-toggle input {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
 
     /* Search Bar Styles */
     .search-bar {
@@ -124,27 +202,6 @@
     </div>
 
     <div class="glass-card mb-4">
-      <h3 class="mb-3">客戶應收餘額</h3>
-      <div class="table-responsive">
-        <table class="balance-table" id="balance-table">
-          <thead>
-            <tr>
-              <th>客戶編號</th>
-              <th>名稱</th>
-              <th>出貨總額</th>
-              <th>已收款</th>
-              <th>未分配預收</th>
-              <th>應收餘額</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td colspan="6" class="empty-state">載入中...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="glass-card mb-4">
       <div class="search-bar">
         <div class="form-group search-date-group">
           <label>開始日期</label>
@@ -203,6 +260,45 @@
         <button class="btn btn-outline" id="btn-prev-page" disabled>上一頁</button>
         <span id="page-info">第 1 頁</span>
         <button class="btn btn-outline" id="btn-next-page" disabled>下一頁</button>
+      </div>
+    </div>
+
+    <div class="glass-card mt-4">
+      <div class="d-flex justify-between align-center mb-3 balance-header">
+        <div>
+          <h3 class="mb-0">客戶應收餘額</h3>
+          <p id="balance-asof-hint" class="balance-asof-hint"></p>
+        </div>
+        <div class="balance-controls">
+          <input type="text" id="balance-keyword" class="form-control balance-keyword"
+                 placeholder="搜尋客戶編號、名稱、統編...">
+          <label class="balance-settled-toggle">
+            <input type="checkbox" id="toggle-settled">
+            <span>顯示已結清客戶</span>
+          </label>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="balance-table" id="balance-table">
+          <thead>
+            <tr>
+              <th>客戶編號</th>
+              <th>名稱</th>
+              <th>出貨總額</th>
+              <th>已收款</th>
+              <th>未分配預收</th>
+              <th>應收餘額</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="6" class="empty-state">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pagination">
+        <button class="btn btn-outline" id="btn-balance-prev" disabled>上一頁</button>
+        <span id="balance-page-info">第 1 頁</span>
+        <button class="btn btn-outline" id="btn-balance-next" disabled>下一頁</button>
       </div>
     </div>
   </div>
