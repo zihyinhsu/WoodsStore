@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 let currentPartners = [];
 let currentType = 'supplier';
 let currentPage = 1;

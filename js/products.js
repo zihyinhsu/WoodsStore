@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage } from './ui.js';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 let currentProducts = [];
 let currentPage = 1;
 let totalCount = 0;
