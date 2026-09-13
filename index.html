@@ -20,6 +20,9 @@
       margin-top: 0.5rem;
       letter-spacing: 1px;
     }
+    .stat-value.is-money {
+      font-size: 2.25rem;
+    }
     .stat-label {
       color: var(--text-muted);
       font-weight: 600;
@@ -42,40 +45,84 @@
     .product-link:hover {
       text-decoration: underline;
     }
-    #recent-orders-scroll {
-      height: 340px;
-      overflow-y: auto;
-      overflow-x: hidden;
-      scrollbar-gutter: stable;
+    .cost-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1rem;
+      align-items: flex-end;
     }
-    #recent-orders-scroll th, #recent-orders-scroll td {
-      padding: 0.75rem 0.5rem;
+    .cost-controls .form-group {
+      margin-bottom: 0;
     }
-    #recent-orders-scroll td:nth-child(2) {
-      font-size: 0.8rem;
-      word-break: break-all;
-      max-width: 150px;
+    .movement-only-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      min-height: 44px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 600;
+      font-size: 0.9rem;
     }
-    #recent-orders-scroll td:nth-child(3) .badge {
-      white-space: nowrap;
-    }
-    #recent-orders-scroll thead th {
-      position: sticky;
-      top: 0;
-      background: #f5f4f1;
-      z-index: 1;
-    }
-    .scroll-loading {
-      text-align: center;
-      padding: 0.5rem;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }
-    .order-row {
+    .movement-only-label input {
+      width: 18px;
+      height: 18px;
       cursor: pointer;
     }
-    .order-row:hover {
-      background: rgba(192, 83, 31, 0.06);
+    .cost-note {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 1rem;
+    }
+    .cost-sku {
+      font-size: 0.8rem;
+    }
+    #cost-table th, #cost-table td {
+      padding: 0.75rem 0.5rem;
+    }
+    #cost-table .num {
+      font-family: 'Roboto', sans-serif;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .cost-totals {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 2px solid var(--border-color);
+    }
+    .cost-totals[hidden] {
+      display: none;
+    }
+    .cost-total-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .cost-total-label {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .cost-total-value {
+      font-family: 'Roboto', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    @media (max-width: 1024px) {
+      .grid-cols-3 {
+        grid-template-columns: 1fr;
+      }
+      .cost-totals {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    @media (max-width: 768px) {
+      .cost-totals {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
   <script>
@@ -132,62 +179,99 @@
   <div class="container">
     <h2 class="mb-4">系統總覽</h2>
     
-    <div class="grid grid-cols-4 gap-4 mb-4">
+    <div class="grid grid-cols-3 gap-4 mb-4">
+      <div class="glass-card stat-card">
+        <div class="stat-label">本月收益</div>
+        <div class="stat-value is-money text-success" id="stat-month-revenue">-</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-label">本月支出</div>
+        <div class="stat-value is-money text-danger" id="stat-month-expense">-</div>
+      </div>
+      <div class="glass-card stat-card">
+        <div class="stat-label">本月成本</div>
+        <div class="stat-value is-money" id="stat-month-cost">-</div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-4">
       <a href="products.html" class="glass-card stat-card stat-link">
         <div class="stat-label">商品總數</div>
         <div class="stat-value" id="stat-total-products">-</div>
       </a>
-      <div class="glass-card stat-card">
+      <a href="products.html#view=low-stock" class="glass-card stat-card stat-link">
         <div class="stat-label">庫存不足</div>
         <div class="stat-value text-danger" id="stat-low-stock">-</div>
-      </div>
-      <div class="glass-card stat-card">
-        <div class="stat-label">今日出貨金額</div>
-        <div class="stat-value text-success" id="stat-today-sales">-</div>
-      </div>
-      <div class="glass-card stat-card">
-        <div class="stat-label">近期單據數 (30天)</div>
-        <div class="stat-value" id="stat-recent-orders">-</div>
-      </div>
+      </a>
     </div>
 
-    <div class="grid grid-cols-2 gap-4">
-      <div class="glass-card">
-        <h3 class="mb-3">庫存不足警告</h3>
-        <div class="table-responsive">
-          <table id="low-stock-table">
-            <thead>
-              <tr>
-                <th>商品名稱</th>
-                <th>目前庫存</th>
-                <th>安全庫存</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td colspan="3" class="empty-state">載入中...</td></tr>
-            </tbody>
-          </table>
+    <h3 class="mb-3">進出貨成本分析</h3>
+
+    <div class="glass-card mb-4 cost-controls">
+      <div class="form-group">
+        <label for="cost-date-from">開始日期</label>
+        <input type="date" id="cost-date-from" class="form-control">
+      </div>
+      <div class="form-group">
+        <label for="cost-date-to">結束日期</label>
+        <input type="date" id="cost-date-to" class="form-control">
+      </div>
+      <button class="btn btn-primary" id="btn-cost-search">查詢</button>
+      <label class="movement-only-label">
+        <input type="checkbox" id="cost-movement-only" checked>
+        <span>只顯示有進出貨的商品</span>
+      </label>
+    </div>
+
+    <div class="glass-card">
+      <div class="table-responsive">
+        <table id="cost-table">
+          <thead>
+            <tr>
+              <th>商品</th>
+              <th>進貨數量</th>
+              <th>進貨金額</th>
+              <th>出貨數量</th>
+              <th>出貨金額</th>
+              <th>出貨成本</th>
+              <th>毛利</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="7" class="empty-state">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="cost-totals" id="cost-totals" hidden>
+        <div class="cost-total-item">
+          <span class="cost-total-label">期間進貨金額</span>
+          <span class="cost-total-value" id="cost-total-purchase">-</span>
+        </div>
+        <div class="cost-total-item">
+          <span class="cost-total-label">期間出貨金額</span>
+          <span class="cost-total-value" id="cost-total-sale">-</span>
+        </div>
+        <div class="cost-total-item">
+          <span class="cost-total-label">期間出貨成本</span>
+          <span class="cost-total-value" id="cost-total-cost">-</span>
+        </div>
+        <div class="cost-total-item">
+          <span class="cost-total-label">期間毛利</span>
+          <span class="cost-total-value" id="cost-total-profit">-</span>
         </div>
       </div>
 
-      <div class="glass-card">
-        <h3 class="mb-3">最新單據</h3>
-        <div class="table-responsive" id="recent-orders-scroll">
-          <table id="recent-orders-table">
-            <thead>
-              <tr>
-                <th>日期</th>
-                <th>單號</th>
-                <th>類型</th>
-                <th>金額</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td colspan="4" class="empty-state">載入中...</td></tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="pagination">
+        <button class="btn btn-outline" id="btn-cost-prev" disabled>上一頁</button>
+        <span id="cost-page-info">-</span>
+        <button class="btn btn-outline" id="btn-cost-next" disabled>下一頁</button>
       </div>
+
+      <p class="cost-note">
+        出貨成本以期間內的進貨均價估算（單據未保存出貨當下的成本），期間內未進貨的商品則採現行進價；
+        金額僅計已確認的進貨與出貨單，不含整單折讓與稅額。
+      </p>
     </div>
   </div>
 

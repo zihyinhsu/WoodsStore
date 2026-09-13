@@ -19,6 +19,14 @@ export function formatDate(dateString) {
   }).replace(/\//g, '-');
 }
 
+// 日期輸入框用的 YYYY-MM-DD。
+// 不能用 toISOString()：那會先轉成 UTC，台北時間當天 08:00 前會變成前一天。
+export function toDateInputValue(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
 export function debounce(func, wait) {
   let timeout;
   return function executedFunction(...args) {
@@ -75,6 +83,34 @@ export function toErrorMessage(error) {
     return '此單據狀態已變更（可能已被確認或作廢），無法編輯。請重新整理後再試。';
   }
   if (raw.includes('ORDER_NOT_FOUND')) return '找不到此單據，可能已被刪除。';
+
+  if (raw.includes('PAYMENT_STATUS_READONLY')) {
+    return '付款狀態由收款紀錄自動推導，請至收款管理新增或修改收款。';
+  }
+  if (raw.includes('ALLOCATION_EXCEEDS_PAYMENT')) {
+    return '分配總額超過收款金額，請調整各單據的沖帳金額。';
+  }
+  if (raw.includes('ALLOCATION_EXCEEDS_ORDER')) {
+    return '沖帳金額超過該單據的應收金額，請確認是否已有其他收款沖過同一張單。';
+  }
+  if (raw.includes('ALLOCATION_PARTNER_MISMATCH')) {
+    return '收款客戶與單據客戶不一致，無法沖帳。';
+  }
+  if (raw.includes('ALLOCATION_TARGET_INVALID')) {
+    return '只能沖帳已確認的出貨單。';
+  }
+  if (raw.includes('ORDER_HAS_ALLOCATIONS')) {
+    return '此單據已有收款沖帳，請先至收款管理移除相關分配後再作廢。';
+  }
+  if (raw.includes('ORDER_TOTAL_BELOW_ALLOCATED')) {
+    return '單據金額低於已收款金額，請先調整收款分配。';
+  }
+  if (raw.includes('PAYMENT_PARTNER_INVALID')) return '收款對象必須是客戶。';
+  if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇收款客戶。';
+  if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收款金額必須大於 0。';
+  if (raw.includes('PAYMENT_METHOD_INVALID')) return '收款方式不正確。';
+  if (raw.includes('PAYMENT_NOT_FOUND')) return '找不到此收款紀錄，可能已被刪除。';
+  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '沖帳金額必須大於 0。';
 
   if (/duplicate key value/i.test(raw)) {
     const matched = Object.keys(UNIQUE_FIELD_LABELS).find(key => raw.includes(key));

@@ -1,153 +1,164 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, showToast } from './ui.js';
+import {
+  COST_PAGE_SIZE,
+  fetchCostPage,
+  fetchCostTotals,
+  fetchPeriodSummary
+} from './inventory-cost.js';
+import { formatCurrency, showToast, toDateInputValue } from './ui.js';
+
+const dateFrom = document.getElementById('cost-date-from');
+const dateTo = document.getElementById('cost-date-to');
+const btnSearch = document.getElementById('btn-cost-search');
+const movementOnlyToggle = document.getElementById('cost-movement-only');
+const btnPrevPage = document.getElementById('btn-cost-prev');
+const btnNextPage = document.getElementById('btn-cost-next');
+const pageInfo = document.getElementById('cost-page-info');
+
+let costPage = 1;
+let costTotal = 0;
+
+function monthRange(today = new Date()) {
+  return {
+    from: toDateInputValue(new Date(today.getFullYear(), today.getMonth(), 1)),
+    to: toDateInputValue(new Date(today.getFullYear(), today.getMonth() + 1, 0))
+  };
+}
+
+async function loadMonthlySummary(range) {
+  const { revenue, expense, cost } = await fetchPeriodSummary(range.from, range.to);
+
+  document.getElementById('stat-month-revenue').textContent = formatCurrency(revenue);
+  document.getElementById('stat-month-expense').textContent = formatCurrency(expense);
+  document.getElementById('stat-month-cost').textContent = formatCurrency(cost);
+}
+
+async function loadStockStats() {
+  const [totalResult, lowStockResult] = await Promise.all([
+    sb.from('products').select('*', { count: 'exact', head: true }).eq('is_active', true),
+    sb.from('low_stock_view').select('*', { count: 'exact', head: true }).eq('is_active', true)
+  ]);
+
+  if (totalResult.error) throw totalResult.error;
+  if (lowStockResult.error) throw lowStockResult.error;
+
+  document.getElementById('stat-total-products').textContent = totalResult.count || 0;
+  document.getElementById('stat-low-stock').textContent = lowStockResult.count || 0;
+}
+
+function renderCostTable(rows) {
+  const tbody = document.querySelector('#cost-table tbody');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">此期間沒有進出貨紀錄</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(row => {
+    const profit = Number(row.estimated_profit);
+    return `
+      <tr>
+        <td>
+          <a href="products.html#search=${encodeURIComponent(row.sku)}" class="product-link">${row.name}</a>
+          <div class="text-muted cost-sku">${row.sku}</div>
+        </td>
+        <td>${row.purchase_qty} ${row.unit || ''}</td>
+        <td class="num">${formatCurrency(row.purchase_amount)}</td>
+        <td>${row.sale_qty} ${row.unit || ''}</td>
+        <td class="num">${formatCurrency(row.sale_amount)}</td>
+        <td class="num">${formatCurrency(row.estimated_cost)}</td>
+        <td class="num ${profit < 0 ? 'text-danger' : 'text-success'}">${formatCurrency(profit)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderCostTotals(totals) {
+  document.getElementById('cost-total-purchase').textContent = formatCurrency(totals.purchaseAmount);
+  document.getElementById('cost-total-sale').textContent = formatCurrency(totals.saleAmount);
+  document.getElementById('cost-total-cost').textContent = formatCurrency(totals.estimatedCost);
+  document.getElementById('cost-total-profit').textContent = formatCurrency(totals.estimatedProfit);
+  document.getElementById('cost-totals').hidden = false;
+}
+
+function updateCostPagination() {
+  const totalPages = Math.ceil(costTotal / COST_PAGE_SIZE) || 1;
+  pageInfo.textContent = `第 ${costPage} / ${totalPages} 頁 (共 ${costTotal} 項商品)`;
+  btnPrevPage.disabled = costPage <= 1;
+  btnNextPage.disabled = costPage >= totalPages;
+}
+
+async function loadCostPage() {
+  const from = dateFrom.value;
+  const to = dateTo.value;
+
+  if (!from || !to) {
+    showToast('請選擇日期區間', 'error');
+    return;
+  }
+  if (from > to) {
+    showToast('開始日期不可晚於結束日期', 'error');
+    return;
+  }
+
+  btnSearch.disabled = true;
+  try {
+    const [{ rows, total }, totals] = await Promise.all([
+      fetchCostPage({ from, to, page: costPage, movementOnly: movementOnlyToggle.checked }),
+      fetchCostTotals(from, to)
+    ]);
+
+    costTotal = total;
+    renderCostTable(rows);
+    renderCostTotals(totals);
+    updateCostPagination();
+  } catch (error) {
+    console.error('Error loading cost analysis:', error);
+    showToast('載入成本分析失敗: ' + error.message, 'error');
+  } finally {
+    btnSearch.disabled = false;
+  }
+}
+
+function resetToFirstPageAndLoad() {
+  costPage = 1;
+  loadCostPage();
+}
 
 async function loadDashboard() {
+  const range = monthRange();
+  dateFrom.value = range.from;
+  dateTo.value = range.to;
+
   try {
-    // 1. Total Products
-    const { count: totalProducts, error: err1 } = await sb
-      .from('products')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_active', true);
-    if (err1) throw err1;
-    document.getElementById('stat-total-products').textContent = totalProducts || 0;
-
-    // 2. Low Stock Products
-    const { data: lowStockData, error: err2 } = await sb
-      .from('stock_view')
-      .select('*')
-      .eq('is_active', true);
-    if (err2) throw err2;
-    
-    const lowStockItems = lowStockData.filter(p => p.stock_qty < p.safety_stock);
-    document.getElementById('stat-low-stock').textContent = lowStockItems.length;
-
-    renderLowStockTable(lowStockItems.slice(0, 5));
-
-    // 3. Today's Sales
-    const today = new Date().toISOString().split('T')[0];
-    const { data: todaySales, error: err3 } = await sb
-      .from('order_search_view')
-      .select('total_amount')
-      .eq('type', 'sale')
-      .eq('status', 'confirmed')
-      .eq('order_date', today);
-    if (err3) throw err3;
-    
-    const todayTotal = todaySales.reduce((sum, order) => sum + Number(order.total_amount), 0);
-    document.getElementById('stat-today-sales').textContent = formatCurrency(todayTotal);
-
-    // 4. Recent Orders (Last 30 days, infinite scroll 6/batch)
-    const { count: recentOrdersCount, error: err4 } = await sb
-      .from('order_search_view')
-      .select('*', { count: 'exact', head: true })
-      .gte('order_date', recentSince());
-    if (err4) throw err4;
-
-    document.getElementById('stat-recent-orders').textContent = recentOrdersCount || 0;
-    recentTotal = recentOrdersCount || 0;
-    await loadMoreRecentOrders();
-
+    await Promise.all([
+      loadMonthlySummary(range),
+      loadStockStats(),
+      loadCostPage()
+    ]);
   } catch (error) {
     console.error('Dashboard error:', error);
     showToast('載入總覽資料失敗: ' + error.message, 'error');
   }
 }
 
-const RECENT_BATCH = 6;
-let recentLoaded = 0;
-let recentTotal = 0;
-let recentLoading = false;
-
-function recentSince() {
-  const d = new Date();
-  d.setDate(d.getDate() - 30);
-  return d.toISOString().split('T')[0];
-}
-
-async function loadMoreRecentOrders() {
-  if (recentLoading || (recentTotal > 0 && recentLoaded >= recentTotal)) return;
-  recentLoading = true;
-
-  try {
-    const { data, error } = await sb
-      .from('order_search_view')
-      .select('*')
-      .gte('order_date', recentSince())
-      .order('order_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .range(recentLoaded, recentLoaded + RECENT_BATCH - 1);
-    if (error) throw error;
-
-    appendRecentOrders(data, recentLoaded === 0);
-    recentLoaded += data.length;
-  } catch (error) {
-    console.error('Error loading recent orders:', error);
-    showToast('載入最新單據失敗: ' + error.message, 'error');
-  } finally {
-    recentLoading = false;
-  }
-}
-
-function renderLowStockTable(items) {
-  const tbody = document.querySelector('#low-stock-table tbody');
-  if (items.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" class="empty-state">目前無庫存不足的商品</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = items.map(item => `
-    <tr>
-      <td>
-        <a href="products.html#search=${encodeURIComponent(item.sku)}" class="product-link">${item.name}</a>
-        <span class="text-muted">(${item.sku})</span>
-      </td>
-      <td class="text-danger font-weight-bold">${item.stock_qty}</td>
-      <td>${item.safety_stock}</td>
-    </tr>
-  `).join('');
-}
-
-function appendRecentOrders(orders, isFirstBatch) {
-  const tbody = document.querySelector('#recent-orders-table tbody');
-
-  if (isFirstBatch) {
-    tbody.innerHTML = '';
-    if (orders.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">近期無單據</td></tr>';
-      return;
-    }
-  }
-
-  const typeMap = {
-    'purchase': '<span class="badge badge-blue">進貨</span>',
-    'sale': '<span class="badge badge-green">出貨</span>',
-    'adjust': '<span class="badge badge-orange">調整</span>'
-  };
-
-  tbody.insertAdjacentHTML('beforeend', orders.map(order => `
-    <tr class="order-row" data-order-no="${order.order_no}">
-      <td>${formatDate(order.order_date)}</td>
-      <td>${order.order_no}</td>
-      <td>${typeMap[order.type] || order.type}</td>
-      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
-    </tr>
-  `).join(''));
-
-  tbody.querySelectorAll('.order-row:not([data-bound])').forEach(row => {
-    row.setAttribute('data-bound', '1');
-    row.addEventListener('click', () => {
-      window.location.href = `orders.html#q=${encodeURIComponent(row.getAttribute('data-order-no'))}&status=all`;
-    });
-  });
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   loadDashboard();
 
-  const scrollBox = document.getElementById('recent-orders-scroll');
-  scrollBox.addEventListener('scroll', () => {
-    if (scrollBox.scrollTop + scrollBox.clientHeight >= scrollBox.scrollHeight - 20) {
-      loadMoreRecentOrders();
+  btnSearch.addEventListener('click', resetToFirstPageAndLoad);
+  movementOnlyToggle.addEventListener('change', resetToFirstPageAndLoad);
+
+  btnPrevPage.addEventListener('click', () => {
+    if (costPage > 1) {
+      costPage--;
+      loadCostPage();
+    }
+  });
+
+  btnNextPage.addEventListener('click', () => {
+    if (costPage < Math.ceil(costTotal / COST_PAGE_SIZE)) {
+      costPage++;
+      loadCostPage();
     }
   });
 });
