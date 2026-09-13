@@ -9,8 +9,7 @@ dist/
 .env.local
 .env.*.local
 
-### 臨時除錯腳本與工具暫存（正式測試在 tests/）
-qa-*.cjs
+### 工具暫存
 .omo/
 *.log
 
