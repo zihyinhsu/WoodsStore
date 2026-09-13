@@ -1,10 +1,12 @@
 {
   "name": "inventory-app",
   "version": "1.0.0",
-  "description": "藝境裝潢材料行進銷存系統：純 HTML + Vanilla JS + Supabase，免 build 的靜態前端",
+  "description": "藝境裝潢材料行進銷存系統：HTML + Vanilla JS + Supabase，以 Vite 建置的多頁式靜態前端",
   "private": true,
   "scripts": {
-    "start": "serve . -l 4173",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "test": "node tests/run-all.cjs",
     "test:dashboard": "node tests/dashboard.test.cjs",
     "test:sorting": "node tests/sorting.test.cjs",
@@ -12,13 +14,11 @@
     "test:orders": "node tests/orders-edit.test.cjs",
     "test:forms": "node tests/forms.test.cjs",
     "test:products": "node tests/products-tabs.test.cjs",
-    "vendor": "node scripts/vendor.mjs",
-    "postinstall": "npm run vendor && playwright install chromium"
+    "postinstall": "playwright install chromium"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
-    "serve": "^14.2.6"
+    "vite": "^7.1.14"
   },
   "engines": {
     "node": ">=18"

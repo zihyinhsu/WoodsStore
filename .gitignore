@@ -1,8 +1,13 @@
-### Node / 測試
+### Node / 相依
 node_modules/
 
-### 由 npm run vendor 產生的前端相依（不進版控）
-js/vendor/
+### Vite 建置產物
+dist/
+
+### 環境變數（含連線金鑰，不進版控；範本見 .env.example）
+.env
+.env.local
+.env.*.local
 
 ### Windows
 # Windows thumbnail cache files

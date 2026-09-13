@@ -201,8 +201,19 @@ export function initSidebar() {
   }
 }
 
+// 勿改回單純的 addEventListener('DOMContentLoaded')：打包後 chunk 較大，
+// 模組解析可能晚於該事件，監聽器註冊時事件已過去，初始化整段不執行
+// （實際症狀：products.html#view=low-stock 的 hash 失效）。
+export function onReady(fn) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fn);
+  } else {
+    fn();
+  }
+}
+
 // Setup modal close buttons
-document.addEventListener('DOMContentLoaded', () => {
+onReady(() => {
   initSidebar();
   
   document.querySelectorAll('.close-btn, [data-dismiss="modal"]').forEach(btn => {

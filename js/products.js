@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
+import { formatCurrency, formatDate, debounce, showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentProducts = [];
@@ -434,7 +434,7 @@ async function saveProduct() {
 }
 
 // Event Listeners
-document.addEventListener('DOMContentLoaded', () => {
+onReady(() => {
   const searchInput = document.getElementById('search-input');
 
   const hashMatch = window.location.hash.match(/^#search=(.+)$/);
@@ -445,13 +445,26 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('status-filter').value = 'all';
   }
 
-  const hashParams = new URLSearchParams(window.location.hash.slice(1));
-  if (VIEW_SOURCES[hashParams.get('view')]) {
-    selectView(hashParams.get('view'));
+  const viewFromHash = () =>
+    new URLSearchParams(window.location.hash.slice(1)).get('view');
+
+  if (VIEW_SOURCES[viewFromHash()]) {
+    selectView(viewFromHash());
   }
 
   loadProducts(urlSearch || '');
   setupCostModalControls();
+
+  // 從本頁連到 products.html#view=... 時網址只差 hash，瀏覽器視為同文件跳轉
+  // 而不重新載入，初始化不會再跑一次，必須在這裡補切換。
+  window.addEventListener('hashchange', () => {
+    const view = viewFromHash();
+    if (!VIEW_SOURCES[view] || view === currentView) return;
+
+    selectView(view);
+    currentPage = 1;
+    loadProducts(searchInput.value);
+  });
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {

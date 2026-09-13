@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady } from './ui.js';
 
 const PAGE_SIZE = 10;
 let currentPartners = [];
@@ -135,7 +135,7 @@ async function savePartner() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+onReady(() => {
   loadPartners();
 
   document.querySelectorAll('.tab-btn').forEach(btn => {

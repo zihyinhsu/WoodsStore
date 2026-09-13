@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { formatCurrency, formatDate, showToast } from './ui.js';
+import { formatCurrency, formatDate, showToast, onReady } from './ui.js';
 
 // DOM Elements
 const dateFrom = document.getElementById('statement-date-from');
@@ -389,4 +389,4 @@ function setupEventListeners() {
   btnPrintAll.addEventListener('click', () => printWithMode('print-all'));
 }
 
-document.addEventListener('DOMContentLoaded', init);
+onReady(init);

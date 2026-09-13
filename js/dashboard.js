@@ -5,7 +5,7 @@ import {
   fetchCostTotals,
   fetchPeriodSummary
 } from './inventory-cost.js';
-import { formatCurrency, showToast, toDateInputValue } from './ui.js';
+import { formatCurrency, showToast, toDateInputValue, onReady } from './ui.js';
 
 const dateFrom = document.getElementById('cost-date-from');
 const dateTo = document.getElementById('cost-date-to');
@@ -142,7 +142,7 @@ async function loadDashboard() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+onReady(() => {
   loadDashboard();
 
   btnSearch.addEventListener('click', resetToFirstPageAndLoad);
