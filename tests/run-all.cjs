@@ -5,7 +5,9 @@ const SUITES = [
   'sorting.test.cjs',
   'statement.test.cjs',
   'orders-edit.test.cjs',
-  'forms.test.cjs'
+  'forms.test.cjs',
+  'dashboard.test.cjs',
+  'products-tabs.test.cjs'
 ];
 
 const run = file => new Promise(resolve => {

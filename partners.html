@@ -8,35 +8,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
-  <style>
-    .tabs {
-      display: flex;
-      gap: 1rem;
-      margin-bottom: 1rem;
-      border-bottom: 2px solid var(--border-color);
-      padding-bottom: 0.5rem;
-    }
-    .tab-btn {
-      background: none;
-      border: none;
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      cursor: pointer;
-      padding: 0.5rem 1rem;
-      border-radius: 0;
-      transition: var(--transition);
-      border-bottom: 3px solid transparent;
-      margin-bottom: -0.5rem;
-    }
-    .tab-btn:hover {
-      color: var(--text-main);
-    }
-    .tab-btn.active {
-      color: var(--primary);
-      border-bottom: 3px solid var(--primary);
-    }
-  </style>
   <script>
     if (localStorage.getItem('sidebar-collapsed') === 'true') {
       document.documentElement.classList.add('sidebar-collapsed');

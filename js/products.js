@@ -5,25 +5,47 @@ const PAGE_SIZE = 10;
 let currentProducts = [];
 let currentPage = 1;
 let totalCount = 0;
+let currentView = 'all';
+
+// 庫存不足＝stock_qty < safety_stock，該比較跨欄位，PostgREST 的 filter 做不到，
+// 因此改查 low_stock_view（已在 SQL 端算好）。
+const VIEW_SOURCES = { all: 'stock_view', 'low-stock': 'low_stock_view' };
+
+function selectView(view) {
+  currentView = view;
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    const isTarget = btn.getAttribute('data-view') === view;
+    btn.classList.toggle('active', isTarget);
+    btn.setAttribute('aria-selected', String(isTarget));
+  });
+}
+
+function applyProductFilters(query, keyword) {
+  const statusFilter = document.getElementById('status-filter').value;
+  if (statusFilter === 'active') {
+    query = query.eq('is_active', true);
+  } else if (statusFilter === 'inactive') {
+    query = query.eq('is_active', false);
+  }
+
+  if (keyword) {
+    query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,category.ilike.%${keyword}%`);
+  }
+
+  return query;
+}
 
 async function loadProducts(keyword = '') {
   try {
     const from = (currentPage - 1) * PAGE_SIZE;
-    let query = sb.from('stock_view')
-      .select('*', { count: 'exact' })
-      .order('sku', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
-
-    const statusFilter = document.getElementById('status-filter').value;
-    if (statusFilter === 'active') {
-      query = query.eq('is_active', true);
-    } else if (statusFilter === 'inactive') {
-      query = query.eq('is_active', false);
-    }
-
-    if (keyword) {
-      query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,category.ilike.%${keyword}%`);
-    }
+    const query = applyProductFilters(
+      sb.from(VIEW_SOURCES[currentView])
+        .select('*', { count: 'exact' })
+        .order('sku', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1),
+      keyword
+    );
 
     const { data, error, count } = await query;
     if (error) throw error;
@@ -32,10 +54,30 @@ async function loadProducts(keyword = '') {
     totalCount = count || 0;
     renderProductsTable(data);
     renderPagination();
+    refreshLowStockCount();
   } catch (error) {
     console.error('Error loading products:', error);
     showToast('載入商品失敗: ' + error.message, 'error');
   }
+}
+
+// 標記固定顯示「啟用中」的缺貨數，不跟著狀態篩選或關鍵字變動，
+// 否則搜尋時數字會忽大忽小，失去「還有幾項要補貨」的意義。
+async function refreshLowStockCount() {
+  const badge = document.getElementById('low-stock-count');
+
+  const { count, error } = await sb
+    .from('low_stock_view')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_active', true);
+
+  if (error) {
+    badge.hidden = true;
+    return;
+  }
+
+  badge.textContent = count || 0;
+  badge.hidden = !count;
 }
 
 function renderPagination() {
@@ -49,7 +91,10 @@ function renderPagination() {
 function renderProductsTable(products) {
   const tbody = document.querySelector('#products-table tbody');
   if (products.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">找不到商品</td></tr>';
+    const message = currentView === 'low-stock'
+      ? '目前無庫存不足的商品'
+      : '找不到商品';
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${message}</td></tr>`;
     return;
   }
 
@@ -400,8 +445,24 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('status-filter').value = 'all';
   }
 
+  const hashParams = new URLSearchParams(window.location.hash.slice(1));
+  if (VIEW_SOURCES[hashParams.get('view')]) {
+    selectView(hashParams.get('view'));
+  }
+
   loadProducts(urlSearch || '');
   setupCostModalControls();
+
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const view = btn.getAttribute('data-view');
+      if (view === currentView) return;
+
+      selectView(view);
+      currentPage = 1;
+      loadProducts(searchInput.value);
+    });
+  });
 
   searchInput.addEventListener('input', debounce((e) => {
     currentPage = 1;

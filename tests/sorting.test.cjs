@@ -46,13 +46,13 @@ const { launch, goto, cellTexts, isAscending, isDescending, Results } = require(
   r.info('收款日期', paymentDates);
   r.truthy('收款依日期降冪', isDescending(paymentDates));
 
-  // 總覽近期單據：依單據日期降冪（而非建立時間）
+  // 總覽成本分析：依商品編號升冪
   await goto(page, 'index.html');
   await page.waitForTimeout(1500);
-  const recentDates = await cellTexts(page, '#recent-orders-table tbody tr td:first-child').catch(() => []);
-  if (recentDates.length) {
-    r.info('近期單據日期', recentDates);
-    r.truthy('近期單據依日期降冪', isDescending(recentDates));
+  const costSkus = await cellTexts(page, '#cost-table tbody tr td:first-child .cost-sku').catch(() => []);
+  if (costSkus.length) {
+    r.info('成本分析商品編號', costSkus);
+    r.truthy('成本分析依編號升冪', isAscending(costSkus));
   }
 
   r.finish(errors, blockedWrites);

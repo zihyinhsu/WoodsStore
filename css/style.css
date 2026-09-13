@@ -75,6 +75,20 @@ a {
   color: var(--primary);
 }
 
+.payment-link {
+  color: inherit;
+  border-bottom: 1px dashed var(--border-light);
+}
+
+.payment-link:hover {
+  border-bottom-color: var(--text-main);
+}
+
+.payment-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Layout */
 .container {
   max-width: 1200px;
@@ -533,11 +547,68 @@ tbody tr:hover {
 .text-right { text-align: right; }
 .text-danger { color: var(--danger); }
 .text-success { color: var(--success); }
+.text-warning { color: var(--warning); }
 .text-muted { color: var(--text-muted); }
 .w-100 { width: 100%; }
 .grid { display: grid; }
 .grid-cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-cols-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  border-bottom: 2px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  transition: var(--transition);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -0.5rem;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.tab-btn:hover {
+  color: var(--text-main);
+}
+
+.tab-btn.active {
+  color: var(--primary);
+  border-bottom: 3px solid var(--primary);
+}
+
+.tab-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.tab-count {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: white;
+  background: var(--danger);
+  border: 2px solid var(--border-color);
+}
+
+.tab-count:empty,
+.tab-count[hidden] {
+  display: none;
+}
 
 /* Empty State */
 .empty-state {
@@ -559,7 +630,7 @@ tbody tr:hover {
 
 /* Responsive */
 @media (max-width: 768px) {
-  .grid-cols-2, .grid-cols-4 {
+  .grid-cols-2, .grid-cols-3, .grid-cols-4 {
     grid-template-columns: 1fr;
   }
   

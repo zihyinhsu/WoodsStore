@@ -5,23 +5,26 @@
 ## 前置需求
 
 ```bash
-npm install --no-save playwright
-npx playwright install chromium
+npm install
 ```
+
+Playwright 與靜態伺服器都列在 `package.json` 的 devDependencies，
+`postinstall` 會自動下載 chromium，不需要額外指令。
 
 ## 執行
 
 測試需要一個本機靜態伺服器。先開一個終端機啟動：
 
 ```bash
-npx serve . -l 4173
+npm start
 ```
 
 再開另一個終端機執行：
 
 ```bash
-node tests/run-all.cjs          # 全部
-node tests/sorting.test.cjs     # 單一套件
+npm test                        # 全部
+npm run test:sorting            # 單一套件
+node tests/sorting.test.cjs     # 或直接指定檔案
 ```
 
 若要換連接埠，設定 `BASE_URL`：
@@ -45,7 +48,9 @@ BASE_URL=http://localhost:8080 node tests/run-all.cjs
 
 | 檔案 | 涵蓋範圍 |
 |---|---|
-| `sorting.test.cjs` | 商品/往來對象依編號升冪、單據/收款/近期單據依日期降冪、跨頁不重複 |
+| `sorting.test.cjs` | 商品/往來對象依編號升冪、單據/收款依日期降冪、成本分析依編號升冪、跨頁不重複 |
+| `dashboard.test.cjs` | 總覽本月收益/支出/成本、成本分析預設區間與合計、日期區間驗證 |
+| `products-tabs.test.cjs` | 商品頁「所有商品／庫存不足」分頁切換、空狀態、數量標記、hash 直達 |
 | `statement.test.cjs` | 對帳單日期查詢、客戶 tabs、多選列印、全選三態、查無資料的狀態重置 |
 | `orders-edit.test.cjs` | 連點不重複展開明細、草稿可編輯、已確認僅開放備註、作廢不可編輯 |
 | `forms.test.cjs` | 自動編號提示、編號留空可送出、儲存按鈕防連點、動態按鈕文案 |

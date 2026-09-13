@@ -161,6 +161,13 @@
       <button class="btn btn-primary" id="btn-add-product">新增商品</button>
     </div>
 
+    <div class="tabs" role="tablist" aria-label="商品檢視">
+      <button class="tab-btn active" data-view="all" role="tab" aria-selected="true">所有商品</button>
+      <button class="tab-btn" data-view="low-stock" role="tab" aria-selected="false">
+        庫存不足<span class="tab-count" id="low-stock-count" hidden></span>
+      </button>
+    </div>
+
     <div class="glass-card mb-4">
       <div class="d-flex gap-3" style="display: flex; gap: 1rem; align-items: center;">
         <div class="form-group mb-0" style="flex: 1;">
