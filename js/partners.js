@@ -88,7 +88,9 @@ function openEditModal(partner = null) {
     document.getElementById('partner-id').value = '';
     document.getElementById('partner-type').value = currentType;
   }
-  
+
+  document.getElementById('partner-no-hint').style.display = partner ? 'none' : '';
+
   openModal('partner-modal');
 }
 
