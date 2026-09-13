@@ -1,7 +1,7 @@
 // ============================================================
 // Supabase client 單例
 // ============================================================
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+import { createClient } from './vendor/supabase-js.mjs';
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
 if (SUPABASE_URL.includes('YOUR-PROJECT')) {

@@ -1,0 +1,29 @@
+{
+  "name": "inventory-app",
+  "version": "1.0.0",
+  "description": "藝境裝潢材料行進銷存系統：純 HTML + Vanilla JS + Supabase，免 build 的靜態前端",
+  "private": true,
+  "scripts": {
+    "start": "serve . -l 4173",
+    "test": "node tests/run-all.cjs",
+    "test:dashboard": "node tests/dashboard.test.cjs",
+    "test:sorting": "node tests/sorting.test.cjs",
+    "test:statement": "node tests/statement.test.cjs",
+    "test:orders": "node tests/orders-edit.test.cjs",
+    "test:forms": "node tests/forms.test.cjs",
+    "test:products": "node tests/products-tabs.test.cjs",
+    "vendor": "node scripts/vendor.mjs",
+    "postinstall": "npm run vendor && playwright install chromium"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "playwright": "^1.63.0",
+    "serve": "^14.2.6"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0"
+  }
+}
