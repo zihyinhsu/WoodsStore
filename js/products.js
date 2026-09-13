@@ -339,7 +339,9 @@ function openEditModal(product = null) {
     document.getElementById('modal-title').textContent = '新增商品';
     document.getElementById('product-id').value = '';
   }
-  
+
+  document.getElementById('product-sku-hint').style.display = product ? 'none' : '';
+
   openModal('product-modal');
 }
 
@@ -352,7 +354,7 @@ async function saveProduct() {
 
   const id = document.getElementById('product-id').value;
   const productData = {
-    sku: document.getElementById('product-sku').value,
+    sku: document.getElementById('product-sku').value.trim() || null,
     name: document.getElementById('product-name').value,
     category: document.getElementById('product-category').value || null,
     unit: document.getElementById('product-unit').value || '個',

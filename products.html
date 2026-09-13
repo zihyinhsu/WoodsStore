@@ -216,8 +216,9 @@
           <input type="hidden" id="product-id">
           <div class="grid grid-cols-2 gap-3">
             <div class="form-group" style="grid-column: span 2;">
-              <label>編號 (必填)</label>
-              <input type="text" id="product-sku" class="form-control" required>
+              <label for="product-sku">編號</label>
+              <input type="text" id="product-sku" class="form-control" placeholder="儲存後自動產生">
+              <small id="product-sku-hint" class="text-muted">留空將自動編號（P0001 起）</small>
             </div>
             <div class="form-group" style="grid-column: span 2;">
               <label>商品名稱 (必填)</label>
