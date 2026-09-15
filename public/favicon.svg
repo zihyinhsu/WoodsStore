@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- 側面原木：兩根橫躺圓木堆疊，左端露出年輪面，小尺寸也能一眼認出是木頭 -->
+  <!-- 下木 -->
+  <rect x="5" y="13" width="15" height="6" rx="3" fill="#8a5a2b"/>
+  <ellipse cx="5" cy="16" rx="2.2" ry="3" fill="#d9a066"/>
+  <ellipse cx="5" cy="16" rx="0.9" ry="1.3" fill="none" stroke="#b07a3c" stroke-width="0.7"/>
+  <!-- 上木 -->
+  <rect x="5" y="5" width="15" height="6" rx="3" fill="#8a5a2b"/>
+  <ellipse cx="5" cy="8" rx="2.2" ry="3" fill="#e0b584"/>
+  <ellipse cx="5" cy="8" rx="0.9" ry="1.3" fill="none" stroke="#b07a3c" stroke-width="0.7"/>
+</svg>
