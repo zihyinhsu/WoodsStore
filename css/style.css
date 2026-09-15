@@ -885,9 +885,11 @@ tbody tr:hover {
     content: none;
   }
 
-  /* #cost-table td 有 ID 權重的自訂 padding，會蓋掉上面的 padding-left，
-     導致欄名與內容重疊；用同帶 ID 的選擇器把讓位的 padding 補回。 */
-  #cost-table.table--cards td {
+  /* #cost-table 與 #balance-table 的 td 各有 ID／頁面權重的自訂 padding
+     （balance-table 的來自 payments.html inline style），會蓋掉上面的
+     padding-left，導致欄名與內容重疊；用同帶 ID 的選擇器把讓位的 padding 補回。 */
+  #cost-table.table--cards td,
+  #balance-table.table--cards td {
     padding: 0.9rem 1.25rem 0.9rem 40%;
   }
 }
