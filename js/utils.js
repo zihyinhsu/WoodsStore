@@ -99,6 +99,15 @@ export function escapeHtml(value) {
   }[ch]));
 }
 
+// 產生一個跳到單據管理、直接搜這張單的連結。收款沖帳明細與商品進出紀錄都會用到。
+// status=all 不可省略：單據頁預設只列有效單據，作廢的單會直接搜不到而顯示空白。
+// expand=1 讓對方頁面在命中單筆時自動展開明細，省去到站後再點一次。
+export function orderSearchLink(orderNo) {
+  if (!orderNo) return '-';
+  const href = `orders.html?q=${encodeURIComponent(orderNo)}&status=all&expand=1`;
+  return `<a href="${escapeHtml(href)}" title="在單據管理中查看此單">${escapeHtml(orderNo)}</a>`;
+}
+
 // 金額運算用。浮點數相加會出現 0.1 + 0.2 這類尾數，
 // 沖帳金額比對「是否剛好等於收款金額」時會誤判，因此每步都收斂到分。
 export function round2(value) {

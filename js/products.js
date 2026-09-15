@@ -1,6 +1,6 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
-import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
 let currentProducts = [];
@@ -295,7 +295,7 @@ async function loadCostAnalysisData(productId, container, from, to) {
         return `
           <tr class="${isAdjust ? 'adjust-row' : ''}">
             <td>${formatDate(item.order_date)}</td>
-            <td>${escapeHtml(item.order_no)}</td>
+            <td>${orderSearchLink(item.order_no)}</td>
             <td>${typeMap[item.type]}</td>
             <td class="num-col">${qtyStr}</td>
             <td class="num-col">${priceStr}</td>

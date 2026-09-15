@@ -1,6 +1,6 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -377,14 +377,6 @@ async function togglePaymentDetail(paymentId, rowElement) {
   document.querySelectorAll('#payments-table .detail-open').forEach(el => el.classList.remove('detail-open'));
 
   await expandPaymentDetail(paymentId, rowElement);
-}
-
-// status=all 不可省略：單據頁預設只列有效單據，作廢的單會直接搜不到而顯示空白。
-// expand=1 讓對方頁面在命中單筆時自動展開明細，省去到站後再點一次。
-function orderSearchLink(orderNo) {
-  if (!orderNo) return '-';
-  const href = `orders.html?q=${encodeURIComponent(orderNo)}&status=all&expand=1`;
-  return `<a href="${escapeHtml(href)}" title="在單據管理中查看此單">${escapeHtml(orderNo)}</a>`;
 }
 
 async function expandPaymentDetail(paymentId, rowElement) {
