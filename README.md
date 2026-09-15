@@ -4,7 +4,8 @@ HTML + Vanilla JS + Supabase 的輕量進銷存管理系統，以 Vite 建置，
 
 ## 功能
 
-- **總覽**：本月出貨收益／進貨支出／出貨成本／毛利、指定期間的逐商品進出貨成本分析
+- **總覽**：本月出貨收益／進貨支出／出貨成本／毛利、指定期間的逐商品進出貨成本分析，
+  另附兩張圖表（按月進出貨趨勢、商品毛利排行），跟著查詢區間連動重繪
 - **商品管理**：所有商品／庫存不足分頁檢視、商品 CRUD、即時庫存（流水帳計算）、搜尋、分頁
 - **單據管理**：進貨／銷貨／調整單、草稿流程（存草稿 → 確認生效）、作廢回沖、付款狀態、時間區間＋關鍵字搜尋
 - **收款管理**：客戶應收餘額、收款單沖帳分配、未分配預收追蹤、時間區間＋關鍵字搜尋
@@ -31,6 +32,8 @@ Supabase
 2. 將 `sql/migration.sql` 與 `sql/patch-*.sql` 依序貼到 SQL Editor 執行
    （含 `patch-017-auth.sql`，會關閉匿名存取——套用前先在 Authentication
    建立員工帳號並關閉「Allow new users to sign up」，否則自己也會被鎖在外面）
+   （`patch-019-cost-charts.sql` 提供總覽圖表的聚合 RPC，沿用 `patch-008` 的
+   `product_movement`，務必排在 patch-008 之後；照檔名順序貼上即可）
 3. 複製 `.env.example` 為 `.env`，填入 Project URL 與 Publishable (anon) key
 4. `npm install` — 安裝相依套件
 5. `npm run dev` 啟動開發伺服器（http://localhost:5173），支援 HMR，存檔即更新

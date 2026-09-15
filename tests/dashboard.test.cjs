@@ -53,6 +53,31 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   r.info('期間合計', totals);
   r.truthy('合計皆為金額', totals.length === 4 && totals.every(isCurrency));
 
+  // 圖表：canvas 容器必須存在；有資料時 canvas 顯示、空狀態隱藏（兩者互斥）
+  r.check('趨勢圖 canvas 存在', await page.locator('#cost-trend-chart').count(), 1);
+  r.check('排行圖 canvas 存在', await page.locator('#cost-ranking-chart').count(), 1);
+
+  const chartState = async (canvasId, emptyId) => {
+    const visible = await page.locator(canvasId).isVisible();
+    const empty = await page.locator(emptyId).isVisible();
+    return { visible, empty, ok: visible !== empty };
+  };
+
+  const trend = await chartState('#cost-trend-chart', '#cost-trend-empty');
+  const ranking = await chartState('#cost-ranking-chart', '#cost-ranking-empty');
+  r.info('趨勢圖狀態', trend.visible ? '有資料' : (trend.empty ? '空狀態' : '未知'));
+  r.info('排行圖狀態', ranking.visible ? '有資料' : (ranking.empty ? '空狀態' : '未知'));
+  r.truthy('趨勢圖有資料或顯示空狀態', trend.ok);
+  r.truthy('排行圖有資料或顯示空狀態', ranking.ok);
+
+  // 切換到較寬區間重查：圖表要跟著重繪，且不得殘留舊 chart（殘留會噴 console error，由 finish 把關）
+  await page.fill('#cost-date-from', `${today.getFullYear()}-01-01`);
+  await page.fill('#cost-date-to', expectedTo);
+  await page.click('#btn-cost-search');
+  await page.waitForTimeout(1500);
+  const trendAfter = await chartState('#cost-trend-chart', '#cost-trend-empty');
+  r.truthy('重查後趨勢圖仍正常（無殘留 canvas 錯誤）', trendAfter.ok);
+
   // 起始日晚於結束日要擋下並提示
   await page.fill('#cost-date-from', expectedTo);
   await page.fill('#cost-date-to', expectedFrom);
