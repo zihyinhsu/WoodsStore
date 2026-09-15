@@ -8,7 +8,7 @@ import {
 } from './inventory-cost.js';
 import { showToast, renderPagination } from './ui.js';
 import { requireAuth } from './auth.js';
-import { formatCurrency, dateRange, totalPages, escapeHtml, round2 } from './utils.js';
+import { formatCurrency, dateRange, totalPages, escapeHtml } from './utils.js';
 
 const dateFrom = document.getElementById('cost-date-from');
 const dateTo = document.getElementById('cost-date-to');
@@ -163,8 +163,9 @@ async function loadCharts(from, to) {
 }
 
 async function loadMonthlySummary(range) {
-  const { revenue, expense, cost } = await fetchPeriodSummary(range.from, range.to);
-  const profit = round2(revenue - cost);
+  // 毛利用 SQL 回傳的未稅值（含折讓），不再 revenue(含稅) − cost：
+  // 收益卡含稅是收付視角，但拿含稅收益去減未稅成本會讓毛利被稅額灌水。
+  const { revenue, expense, cost, profit } = await fetchPeriodSummary(range.from, range.to);
 
   document.getElementById('stat-month-revenue').textContent = formatCurrency(revenue);
   document.getElementById('stat-month-expense').textContent = formatCurrency(expense);

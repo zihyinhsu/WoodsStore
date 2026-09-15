@@ -172,11 +172,11 @@
     
     <div class="grid grid-cols-4 gap-4 mb-4">
       <div class="glass-card stat-card">
-        <div class="stat-label">本月進貨支出</div>
+        <div class="stat-label">本月進貨支出（含稅）</div>
         <div class="stat-value is-money text-danger" id="stat-month-expense">-</div>
       </div>
       <div class="glass-card stat-card">
-        <div class="stat-label">本月出貨收益</div>
+        <div class="stat-label">本月出貨收益（含稅）</div>
         <div class="stat-value is-money text-success" id="stat-month-revenue">-</div>
       </div>
       <div class="glass-card stat-card">
@@ -184,7 +184,7 @@
         <div class="stat-value is-money" id="stat-month-cost">-</div>
       </div>
       <div class="glass-card stat-card">
-        <div class="stat-label">本月毛利</div>
+        <div class="stat-label">本月毛利（未稅）</div>
         <div class="stat-value is-money" id="stat-month-profit">-</div>
       </div>
     </div>
@@ -271,8 +271,7 @@
       </div>
 
       <p class="cost-note">
-        出貨成本為單據確認當下寫定的成本快照（出貨取截至出貨日的累計進貨加權平均），確認後即固定、不隨查詢區間變動；
-        金額僅計已確認的進貨與出貨單，不含整單折讓與稅額。上方卡片為本月淨額（含整單折讓與稅額），下方合計為所選期間的明細小計（不含折讓與稅額），因此兩組數字不會相等。
+        出貨成本於確認出貨時記下、之後不變；下方金額已扣折讓未加稅，上方卡片含稅，故差一筆稅額。
       </p>
     </div>
   </div>

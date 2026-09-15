@@ -129,10 +129,12 @@ export async function fetchPeriodSummary(from, to) {
   const { data, error } = await sb.rpc('dashboard_summary', { p_from: from, p_to: to });
   if (error) throw error;
 
-  const summary = data?.[0] || { revenue: 0, expense: 0, cost: 0 };
+  const summary = data?.[0] || { revenue: 0, expense: 0, cost: 0, profit: 0 };
   return {
     revenue: Number(summary.revenue),
     expense: Number(summary.expense),
-    cost: Number(summary.cost)
+    cost: Number(summary.cost),
+    // 未稅毛利由 SQL 端算好（含折讓、未稅）。前端別再用含稅的 revenue 減成本，那會灌水。
+    profit: Number(summary.profit)
   };
 }

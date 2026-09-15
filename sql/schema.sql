@@ -397,7 +397,14 @@ select
   o.type,
   abs(oi.qty) as qty,
   oi.subtotal,
-  oi.unit_cost
+  oi.unit_cost,
+  -- 整單折讓掛在單、不掛在商品，按明細小計比例分攤到本列，毛利才不會因忽略折讓而高估。
+  -- 保持全精度不 round：同一單各列分攤和恆等於整單折讓，合計不會因逐列進位而漂移。
+  -- 整單小計為 0 卻有折讓的異常單以 nullif 防除零，該情況不分攤。
+  -- 放在最後一欄：create or replace view 只能在尾端追加欄位，插在既有欄位間會報
+  -- cannot change name of view column（既有欄的名稱與位置不可變動）。
+  o.discount * oi.subtotal
+    / nullif(sum(oi.subtotal) over (partition by oi.order_id), 0) as order_discount_alloc
 from orders o
 join order_items oi on oi.order_id = o.id
 where o.status = 'confirmed'
@@ -1060,9 +1067,10 @@ as $$
   select
     m.product_id,
     coalesce(sum(m.qty)      filter (where m.type = 'purchase'), 0),
-    coalesce(sum(m.subtotal) filter (where m.type = 'purchase'), 0),
+    -- 進/出貨金額扣掉分攤到本列的整單折讓（未稅、含折讓）；數量與成本快照不受折讓影響。
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0),
     coalesce(sum(m.qty)      filter (where m.type = 'sale'), 0),
-    coalesce(sum(m.subtotal) filter (where m.type = 'sale'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0),
     coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0)
   from product_movement_base m
   where m.order_date between p_from and p_to
@@ -1070,14 +1078,20 @@ as $$
 $$;
 
 -- 期間損益彙總
--- 收益／支出 = 明細小計 − 整單折讓 + 稅額；成本 = Σ 各商品出貨成本快照。
-create or replace function dashboard_summary(
+-- 收益／支出 = 明細小計 − 整單折讓 + 稅額（含稅，收付視角，供上方兩張卡片）；
+-- 成本 = Σ 各商品出貨成本快照；
+-- 毛利 = 未稅銷貨淨額（含折讓）− 成本。稅是代收代付、不是收入，故毛利一律未稅，
+--        不可用含稅的 revenue 去減成本（那會讓毛利被稅額灌水）。
+-- 回傳欄位新增 profit，型別變動，必須先 drop 再 create（create or replace 不允許改回傳型別）。
+drop function if exists dashboard_summary(date, date);
+create function dashboard_summary(
   p_from date,
   p_to date
 ) returns table (
   revenue numeric,
   expense numeric,
-  cost numeric
+  cost numeric,
+  profit numeric
 )
 language sql
 stable
@@ -1094,11 +1108,19 @@ as $$
       and o.type in ('purchase', 'sale')
       and o.order_date between p_from and p_to
     group by o.id
+  ),
+  movement as (
+    -- 與明細表同口徑：sale_net 為未稅、已含折讓（product_movement 已扣分攤折讓）。
+    select
+      coalesce(sum(sale_amount), 0) as sale_net,
+      coalesce(sum(cost), 0)        as cost
+    from product_movement(p_from, p_to)
   )
   select
     coalesce(sum(net_amount) filter (where type = 'sale'), 0),
     coalesce(sum(net_amount) filter (where type = 'purchase'), 0),
-    (select coalesce(sum(cost), 0) from product_movement(p_from, p_to))
+    (select cost from movement),
+    (select sale_net - cost from movement)
   from order_totals;
 $$;
 
@@ -1161,7 +1183,8 @@ as $$
 $$;
 
 -- 單一商品的期間彙總（供商品頁毛利與「平均出貨成本」卡）
--- cost = Σ(出貨明細 unit_cost × abs(qty))。調整單不列入。
+-- 改由 product_movement_base 取數，與總覽的成本分析同口徑：金額含整單折讓、未稅。
+-- cost = Σ(出貨明細 unit_cost × abs(qty))，成本快照不受折讓影響。調整單本就不在該 view。
 create or replace function product_cost_detail_summary(
   p_product_id uuid,
   p_from date default null,
@@ -1178,17 +1201,15 @@ stable
 security invoker
 as $$
   select
-    coalesce(sum(abs(oi.qty)) filter (where o.type = 'purchase'), 0),
-    coalesce(sum(oi.subtotal) filter (where o.type = 'purchase'), 0),
-    coalesce(sum(abs(oi.qty)) filter (where o.type = 'sale'), 0),
-    coalesce(sum(oi.subtotal) filter (where o.type = 'sale'), 0),
-    coalesce(sum(coalesce(oi.unit_cost, 0) * abs(oi.qty)) filter (where o.type = 'sale'), 0)
-  from order_items oi
-  join orders o on o.id = oi.order_id
-  where oi.product_id = p_product_id
-    and o.status = 'confirmed'
-    and (p_from is null or o.order_date >= p_from)
-    and (p_to   is null or o.order_date <= p_to);
+    coalesce(sum(m.qty) filter (where m.type = 'purchase'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0),
+    coalesce(sum(m.qty) filter (where m.type = 'sale'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0),
+    coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0)
+  from product_movement_base m
+  where m.product_id = p_product_id
+    and (p_from is null or m.order_date >= p_from)
+    and (p_to   is null or m.order_date <= p_to);
 $$;
 
 -- 單一商品的期間進出明細（供前端分頁）
@@ -1337,8 +1358,9 @@ as $$
   with monthly as (
     select
       date_trunc('month', m.order_date)::date as month,
-      coalesce(sum(m.subtotal) filter (where m.type = 'purchase'), 0) as purchase_amount,
-      coalesce(sum(m.subtotal) filter (where m.type = 'sale'), 0)     as sale_amount,
+      -- 與 product_movement 同口徑：金額扣掉分攤的整單折讓（未稅、含折讓）。
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0) as purchase_amount,
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0)     as sale_amount,
       coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0) as cost
     from product_movement_base m
     where m.order_date between p_from and p_to
