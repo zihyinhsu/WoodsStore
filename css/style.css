@@ -710,6 +710,12 @@ tbody tr:hover {
   display: none;
 }
 
+/* 屬性選擇器提高權重，才蓋得掉面板自帶的 display（例如 .cost-charts 的 display: grid），
+   否則 hidden 的面板仍會被撐開顯示（同 .cost-totals[hidden] 當初要特別覆蓋的原因）。 */
+.tab-panel[hidden] {
+  display: none;
+}
+
 /* Empty State */
 .empty-state {
   padding: 3rem;

@@ -202,7 +202,12 @@
       <button class="btn btn-primary" id="btn-cost-search">查詢</button>
     </div>
 
-    <div class="glass-card mb-4 cost-charts">
+    <div class="tabs" role="tablist" aria-label="進出貨成本分析檢視">
+      <button class="tab-btn active" data-view="charts" role="tab" aria-selected="true" aria-controls="cost-panel-charts">圖表分析</button>
+      <button class="tab-btn" data-view="table" role="tab" aria-selected="false" aria-controls="cost-panel-table">明細清單</button>
+    </div>
+
+    <div class="glass-card mb-4 cost-charts tab-panel" id="cost-panel-charts" data-view-panel="charts" role="tabpanel">
       <div class="cost-chart-block">
         <h4 class="cost-chart-title">進出貨趨勢（按月）</h4>
         <p class="cost-chart-empty" id="cost-trend-empty" hidden>此期間沒有進出貨紀錄</p>
@@ -219,7 +224,7 @@
       </div>
     </div>
 
-    <div class="glass-card">
+    <div class="glass-card tab-panel" id="cost-panel-table" data-view-panel="table" role="tabpanel" hidden>
       <div class="table-responsive">
         <table id="cost-table">
           <thead>

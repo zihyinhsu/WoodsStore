@@ -40,18 +40,10 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   r.check('預設開始日期為本月一日', await page.inputValue('#cost-date-from'), expectedFrom);
   r.check('預設結束日期為本月月底', await page.inputValue('#cost-date-to'), expectedTo);
 
-  // 成本分析表格：有資料時每列欄位齊全，無資料時顯示空狀態
-  const rowCount = await page.locator('#cost-table tbody tr').count();
-  const firstRowCells = await page.locator('#cost-table tbody tr:first-child td').count();
-  r.info('成本分析列數', rowCount);
-  r.truthy('成本分析表格有內容', rowCount > 0);
-  r.truthy('欄位數正確（7 欄或空狀態）', firstRowCells === 7 || firstRowCells === 1);
-
-  // 合計區塊在查詢成功後顯示
-  r.truthy('合計區塊已顯示', await page.locator('#cost-totals').isVisible());
-  const totals = await cellTexts(page, '.cost-total-value');
-  r.info('期間合計', totals);
-  r.truthy('合計皆為金額', totals.length === 4 && totals.every(isCurrency));
+  // 進出貨成本分析拆成兩個 tab：預設在「圖表分析」，明細清單面板此時應隱藏
+  r.check('圖表分析 tab 預設 active', await page.locator('.tab-btn[data-view="charts"]').getAttribute('aria-selected'), 'true');
+  r.truthy('圖表面板預設顯示', await page.locator('#cost-panel-charts').isVisible());
+  r.truthy('明細面板預設隱藏', !(await page.locator('#cost-panel-table').isVisible()));
 
   // 圖表：canvas 容器必須存在；有資料時 canvas 顯示、空狀態隱藏（兩者互斥）
   r.check('趨勢圖 canvas 存在', await page.locator('#cost-trend-chart').count(), 1);
@@ -77,6 +69,25 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   await page.waitForTimeout(1500);
   const trendAfter = await chartState('#cost-trend-chart', '#cost-trend-empty');
   r.truthy('重查後趨勢圖仍正常（無殘留 canvas 錯誤）', trendAfter.ok);
+
+  // 切到「明細清單」tab：面板互斥切換，表格與合計才可見
+  await page.click('.tab-btn[data-view="table"]');
+  await page.waitForTimeout(300);
+  r.truthy('切換後明細面板顯示', await page.locator('#cost-panel-table').isVisible());
+  r.truthy('切換後圖表面板隱藏', !(await page.locator('#cost-panel-charts').isVisible()));
+
+  // 成本分析表格：有資料時每列欄位齊全，無資料時顯示空狀態
+  const rowCount = await page.locator('#cost-table tbody tr').count();
+  const firstRowCells = await page.locator('#cost-table tbody tr:first-child td').count();
+  r.info('成本分析列數', rowCount);
+  r.truthy('成本分析表格有內容', rowCount > 0);
+  r.truthy('欄位數正確（7 欄或空狀態）', firstRowCells === 7 || firstRowCells === 1);
+
+  // 合計區塊在查詢成功後顯示
+  r.truthy('合計區塊已顯示', await page.locator('#cost-totals').isVisible());
+  const totals = await cellTexts(page, '.cost-total-value');
+  r.info('期間合計', totals);
+  r.truthy('合計皆為金額', totals.length === 4 && totals.every(isCurrency));
 
   // 起始日晚於結束日要擋下並提示
   await page.fill('#cost-date-from', expectedTo);

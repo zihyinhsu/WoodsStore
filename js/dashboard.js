@@ -18,6 +18,7 @@ const btnNextPage = document.getElementById('btn-cost-next');
 
 let costPage = 1;
 let costTotal = 0;
+let costView = 'charts';
 
 // 排行圖取毛利最高 / 最低各幾名（RPC 的 p_limit）。
 const RANKING_LIMIT = 5;
@@ -222,6 +223,29 @@ function updateCostPagination() {
   });
 }
 
+// 圖表分析 / 明細清單兩個 tab 共用上方的查詢列，切 tab 只換面板不重打 RPC。
+function selectCostView(view) {
+  if (view === costView) return;
+  costView = view;
+
+  document.querySelectorAll('.tabs .tab-btn').forEach(btn => {
+    const isTarget = btn.getAttribute('data-view') === view;
+    btn.classList.toggle('active', isTarget);
+    btn.setAttribute('aria-selected', String(isTarget));
+  });
+
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.hidden = panel.getAttribute('data-view-panel') !== view;
+  });
+
+  // 面板從 display:none 切回來時，圖表是在 0 尺寸下畫的，需要重新量一次容器尺寸。
+  // chart.js v3+ 雖有 ResizeObserver，但主動 resize 一次較保險，避免偶發塌成 0 高。
+  if (view === 'charts') {
+    trendChart?.resize();
+    rankingChart?.resize();
+  }
+}
+
 async function loadCostPage() {
   const from = dateFrom.value;
   const to = dateTo.value;
@@ -295,6 +319,10 @@ requireAuth(() => {
   loadDashboard();
 
   btnSearch.addEventListener('click', runSearch);
+
+  document.querySelectorAll('.tabs .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectCostView(btn.getAttribute('data-view')));
+  });
 
   btnPrevPage.addEventListener('click', () => {
     if (costPage > 1) {
