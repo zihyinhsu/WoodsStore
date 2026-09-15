@@ -573,6 +573,14 @@ tbody tr:hover {
   font-weight: bold;
 }
 
+/* modal footer 的取消鈕同時掛了 .close-btn（為了共用「點擊即關閉」的邏輯），
+   會吃到上面給 header × 用的 1.5rem / bold，顯得比同列的儲存鈕（.btn 的 1rem / 600）
+   大一號又粗一截。這裡把「按鈕型」的 close-btn 拉回 .btn 的字級與字重，讓取消與儲存一致。 */
+.btn.close-btn {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
 /* Toasts */
 .toast-container {
   position: fixed;
