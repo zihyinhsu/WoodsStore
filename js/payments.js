@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink } from './utils.js';
 
@@ -45,6 +45,9 @@ const methodMap = {
 };
 
 async function init() {
+  setupResponsiveTable('#payments-table');
+  setupResponsiveTable('#balance-table');
+
   const urlParams = new URLSearchParams(window.location.search);
   orderFilterId = urlParams.get('order_id');
   if (orderFilterId) await loadOrderFilterNo();

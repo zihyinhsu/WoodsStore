@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
 
@@ -23,6 +23,8 @@ const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
 
 async function init() {
+  setupResponsiveTable('#orders-table');
+
   // Parse URL parameters
   const urlParams = new URLSearchParams(window.location.search);
   

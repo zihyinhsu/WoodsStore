@@ -20,6 +20,38 @@ export function renderPagination({ page, total, pageSize, unit = '筆', pageInfo
   if (next) next.disabled = page >= pages;
 }
 
+// 手機版（≤768px）把清單表改為卡片：一列一張卡、每格左欄名右值，
+// 取代需要左右滑動的橫向捲動（CSS 在 style.css 的 .table--cards）。
+// 卡片化需要每格知道自己對應哪個欄位才能顯示欄名，但表身由各頁
+// innerHTML 重繪；若要各頁在模板裡手寫 data-label，又會重蹈「同一段
+// 邏輯散落多支檔案」的覆轍。因此改由這裡從 thead 自動抓欄名補到每個
+// td，並用 MutationObserver 在每次重繪（分頁、搜尋、篩選）後自動補上，
+// 各頁只需在初始化註冊一次。
+export function setupResponsiveTable(table) {
+  const el = typeof table === 'string' ? document.querySelector(table) : table;
+  if (!el || !el.tHead || !el.tBodies[0]) return;
+
+  el.classList.add('table--cards');
+
+  const headers = [...el.tHead.rows[0].cells].map(th => th.textContent.trim());
+  const tbody = el.tBodies[0];
+
+  const label = () => {
+    for (const row of tbody.rows) {
+      // 只處理「一列對應一筆」的資料列；colspan 佔位列（空狀態、載入中、
+      // 訂單展開明細）欄數對不上，維持原樣由 CSS 置中顯示。
+      if (row.cells.length !== headers.length) continue;
+      [...row.cells].forEach((td, i) => td.setAttribute('data-label', headers[i]));
+    }
+  };
+
+  label();
+
+  // 只看子節點增減（整個 tbody 被重繪），不看屬性——否則上面的
+  // setAttribute 會反覆觸發自己。
+  new MutationObserver(label).observe(tbody, { childList: true });
+}
+
 // 防連點：非同步儲存回應前先鎖住按鈕。
 // 不能只用節流，請求較慢時仍會漏掉後續點擊而重複送出。
 export function bindSubmitOnce(buttonId, handler) {

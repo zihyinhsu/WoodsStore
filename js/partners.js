@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
 import { PAGE_SIZE, totalPages, escapeHtml } from './utils.js';
 
@@ -129,6 +129,7 @@ async function savePartner() {
 }
 
 requireAuth(() => {
+  setupResponsiveTable('#partners-table');
   loadPartners();
 
   document.querySelectorAll('.tab-btn').forEach(btn => {

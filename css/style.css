@@ -805,6 +805,84 @@ tbody tr:hover {
   .sidebar-toggle {
     display: none;
   }
+
+  /* 清單表卡片化：由 setupResponsiveTable 掛上 .table--cards 並自動補
+     data-label，這裡把表身攤平成一列一張卡。 */
+  .table--cards thead {
+    /* 表頭視覺隱藏但保留給螢幕閱讀器（欄名已改由每格的 ::before 顯示） */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .table--cards,
+  .table--cards tbody,
+  .table--cards tr,
+  .table--cards td {
+    display: block;
+    width: 100%;
+  }
+
+  .table--cards tr {
+    border: 2px solid var(--border-color);
+    box-shadow: var(--shadow-hard);
+    background: var(--bg-card);
+    margin-bottom: 1rem;
+  }
+
+  /* 手機沒有滑鼠 hover，取消變色避免點擊後卡在 hover 態 */
+  .table--cards tbody tr:hover {
+    background: var(--bg-card);
+  }
+
+  /* 欄名靠左絕對定位、值靠右填滿剩餘寬度。用 padding-left 讓位而非 flex，
+     這樣單格內有多行內容（例如商品名 + 規格）時仍能自然堆疊靠右。 */
+  .table--cards td {
+    position: relative;
+    padding: 0.6rem 1rem 0.6rem 40%;
+    text-align: right;
+    white-space: normal;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .table--cards td:last-child {
+    border-bottom: none;
+  }
+
+  .table--cards td::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 1rem;
+    width: 35%;
+    text-align: left;
+    font-weight: 700;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* colspan 佔位列（空狀態、載入中）維持整格置中，不套欄名與格線 */
+  .table--cards td[colspan] {
+    padding: 1rem;
+    text-align: center;
+    border-bottom: none;
+  }
+
+  .table--cards td[colspan]::before {
+    content: none;
+  }
+
+  /* #cost-table td 有 ID 權重的自訂 padding，會蓋掉上面的 padding-left，
+     導致欄名與內容重疊；用同帶 ID 的選擇器把讓位的 padding 補回。 */
+  #cost-table.table--cards td {
+    padding: 0.6rem 1rem 0.6rem 40%;
+  }
 }
 
 /* Print Styles */

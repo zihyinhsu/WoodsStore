@@ -6,7 +6,7 @@ import {
   fetchCostRanking,
   fetchPeriodSummary
 } from './inventory-cost.js';
-import { showToast, renderPagination } from './ui.js';
+import { showToast, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
 import { formatCurrency, dateRange, totalPages, escapeHtml } from './utils.js';
 
@@ -317,6 +317,7 @@ async function loadDashboard() {
 }
 
 requireAuth(() => {
+  setupResponsiveTable('#cost-table');
   loadDashboard();
 
   btnSearch.addEventListener('click', runSearch);
