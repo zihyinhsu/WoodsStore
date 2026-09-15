@@ -239,6 +239,13 @@ html.sidebar-collapsed .sidebar-user-email {
   display: none;
 }
 
+/* 收合到 64px 時，原尺寸的登出鈕（約 68px）會超出欄寬，被 overflow-x
+   裁掉邊框只剩貼邊的文字；縮小字級與內距讓它完整置中塞進窄欄。 */
+html.sidebar-collapsed .sidebar-logout {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+}
+
 .sidebar-toggle {
   background: none;
   border: none;
