@@ -408,7 +408,7 @@ async function expandPaymentDetail(paymentId, rowElement) {
       : rows.map(a => `
           <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
             <td>${formatDate(a.order_date)}</td>
-            <td>${orderSearchLink(a.order_no)}</td>
+            <td>${orderSearchLink(a.order_no, a.order_date)}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.order_total)}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.allocated_amount)}</td>
           </tr>`).join('');

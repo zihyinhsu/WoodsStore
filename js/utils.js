@@ -102,9 +102,15 @@ export function escapeHtml(value) {
 // 產生一個跳到單據管理、直接搜這張單的連結。收款沖帳明細與商品進出紀錄都會用到。
 // status=all 不可省略：單據頁預設只列有效單據，作廢的單會直接搜不到而顯示空白。
 // expand=1 讓對方頁面在命中單筆時自動展開明細，省去到站後再點一次。
-export function orderSearchLink(orderNo) {
+// 帶上單據日期當作查詢區間（from=to=當日）：orders.html 沒收到日期會套「近 30 天」
+// 預設區間，成本分析常回看數月前的舊單，少了這段點連結會落在被日期濾掉的空白頁。
+export function orderSearchLink(orderNo, orderDate) {
   if (!orderNo) return '-';
-  const href = `orders.html?q=${encodeURIComponent(orderNo)}&status=all&expand=1`;
+  // order_date 是 date 欄位（YYYY-MM-DD 開頭），直接取前 10 碼即可，
+  // 不經過 new Date() 以免又踩到 UTC 轉換把日期推前一天。
+  const day = orderDate ? String(orderDate).slice(0, 10) : '';
+  const dateQs = day ? `&from=${day}&to=${day}` : '';
+  const href = `orders.html?q=${encodeURIComponent(orderNo)}&status=all&expand=1${dateQs}`;
   return `<a href="${escapeHtml(href)}" title="在單據管理中查看此單">${escapeHtml(orderNo)}</a>`;
 }
 

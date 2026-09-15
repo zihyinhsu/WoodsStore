@@ -295,7 +295,7 @@ async function loadCostAnalysisData(productId, container, from, to) {
         return `
           <tr class="${isAdjust ? 'adjust-row' : ''}">
             <td>${formatDate(item.order_date)}</td>
-            <td>${orderSearchLink(item.order_no)}</td>
+            <td>${orderSearchLink(item.order_no, item.order_date)}</td>
             <td>${typeMap[item.type]}</td>
             <td class="num-col">${qtyStr}</td>
             <td class="num-col">${priceStr}</td>
