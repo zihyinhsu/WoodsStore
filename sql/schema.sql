@@ -1407,6 +1407,84 @@ as $$
   order by estimated_profit desc, sku asc;
 $$;
 
+-- ----------------------------------------
+-- 對帳單彙總：期間內有出貨或收款的客戶，各自的期前餘額與本期發生額
+-- 口徑與明細頁一致：金額取 statement_line_view.subtotal（明細小計、不含整單折讓與稅），
+-- 刻意與 partner_balance_view 的 order_total（含折讓、含稅）不同——對帳單自成一套口徑。
+-- 動這裡前先確認是否要連 statement_line_view 一起改，否則左欄合計會與右欄明細對不起來。
+-- 只回「有出貨或有收款」的客戶：期前有往來但本期無異動者不列入對帳單。
+-- ----------------------------------------
+create or replace function statement_summary(
+  p_from date,
+  p_to date
+) returns table (
+  id uuid,
+  partner_no text,
+  name text,
+  tax_id text,
+  phone text,
+  address text,
+  prev_balance numeric,
+  prev_paid numeric,
+  current_sales numeric,
+  current_paid numeric,
+  total_balance numeric
+)
+language sql
+stable
+security invoker
+as $$
+  with cur_sales as (
+    select partner_id, sum(subtotal)::numeric(12,2) as amount
+    from statement_line_view
+    where order_date between p_from and p_to
+    group by partner_id
+  ),
+  cur_paid as (
+    select partner_id, sum(amount)::numeric(12,2) as amount
+    from payments
+    where payment_date between p_from and p_to
+    group by partner_id
+  ),
+  prev_sales as (
+    select partner_id, sum(subtotal)::numeric(12,2) as amount
+    from statement_line_view
+    where order_date < p_from
+    group by partner_id
+  ),
+  prev_paid as (
+    select partner_id, sum(amount)::numeric(12,2) as amount
+    from payments
+    where payment_date < p_from
+    group by partner_id
+  ),
+  -- 期間內有出貨或有收款者才算「有對帳單」；期前有往來但本期無異動的不列入。
+  active as (
+    select partner_id from cur_sales
+    union
+    select partner_id from cur_paid
+  )
+  select
+    p.id,
+    p.partner_no,
+    p.name,
+    p.tax_id,
+    p.phone,
+    p.address,
+    (coalesce(ps.amount, 0) - coalesce(pp.amount, 0))::numeric(12,2),
+    coalesce(pp.amount, 0)::numeric(12,2),
+    coalesce(cs.amount, 0)::numeric(12,2),
+    coalesce(cp.amount, 0)::numeric(12,2),
+    (coalesce(ps.amount, 0) - coalesce(pp.amount, 0)
+       + coalesce(cs.amount, 0) - coalesce(cp.amount, 0))::numeric(12,2)
+  from active a
+  join partners p on p.id = a.partner_id
+  left join cur_sales  cs on cs.partner_id = p.id
+  left join cur_paid   cp on cp.partner_id = p.id
+  left join prev_sales ps on ps.partner_id = p.id
+  left join prev_paid  pp on pp.partner_id = p.id;
+$$;
+
 
 -- ============================================================
 -- 6. Trigger

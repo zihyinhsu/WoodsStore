@@ -1,7 +1,7 @@
-import { sb } from './supabase.js';
 import { showToast } from './ui.js';
 import { requireAuth } from './auth.js';
-import { formatCurrency, formatDate, escapeHtml, sum, groupBy, dateRange, round2 } from './utils.js';
+import { fetchStatementSummary, fetchStatementLines } from './statement-data.js';
+import { formatCurrency, formatDate, escapeHtml, dateRange, round2 } from './utils.js';
 
 // DOM Elements
 const dateFrom = document.getElementById('statement-date-from');
@@ -19,6 +19,15 @@ const selectCountEl = document.getElementById('select-count');
 let activePartnerId = null;
 let selectedIds = new Set();
 let partnerCount = 0;
+
+// 明細改按需載入：彙總（含期間）先存起來，切到某客戶或要列印時才依這些查明細。
+let currentCustomers = [];
+let currentFrom = '';
+let currentTo = '';
+// 已載入明細的客戶，避免重複切換時重撈。每次查詢清空。
+const loadedPartners = new Set();
+
+const LINES_LOADING = '<tr><td colspan="8" class="text-center">載入中…</td></tr>';
 
 function init() {
   const range = dateRange('currentMonth');
@@ -43,79 +52,24 @@ async function searchStatements() {
 
   btnSearch.disabled = true;
   try {
-    // 1. 期間內所有客戶的出貨明細
-    const { data: lines, error: errLines } = await sb
-      .from('statement_line_view')
-      .select('*')
-      .gte('order_date', from)
-      .lte('order_date', to)
-      .order('order_date', { ascending: true })
-      .order('order_no', { ascending: true });
-    if (errLines) throw errLines;
+    // 彙總（期前餘額／本期應收／本期已收／合計）由後端一次算好，前端不再拉明細。
+    // 明細改在切到該客戶時才載入（見 loadLines），避免區間拉大時全部客戶明細一次進瀏覽器。
+    const customers = await fetchStatementSummary(from, to);
 
-    // 2. 期間內所有客戶的收款
-    const { data: payments, error: errPayments } = await sb
-      .from('payments')
-      .select('partner_id, amount')
-      .gte('payment_date', from)
-      .lte('payment_date', to);
-    if (errPayments) throw errPayments;
-
-    const linesByPartner = groupBy(lines || [], 'partner_id');
-    const paymentsByPartner = groupBy(payments || [], 'partner_id');
-
-    // 期間內有出貨或有收款的客戶，才算「有對帳單」
-    const partnerIds = [...new Set([...linesByPartner.keys(), ...paymentsByPartner.keys()])];
-
-    if (partnerIds.length === 0) {
+    if (customers.length === 0) {
+      currentCustomers = [];
       renderEmpty(from, to);
       return;
     }
 
-    // 3. 客戶基本資料
-    const { data: partners, error: errPartners } = await sb
-      .from('partners')
-      .select('*')
-      .in('id', partnerIds);
-    if (errPartners) throw errPartners;
+    // 中文姓名排序交給前端 localeCompare：Postgres 預設 collation 未必是台灣慣用序。
+    customers.sort((a, b) =>
+      (a.partner.name || '').localeCompare(b.partner.name || '', 'zh-Hant'));
 
-    // 4. 期前出貨與期前收款（計算期前累計應收）
-    const [prevSalesRes, prevPaymentsRes] = await Promise.all([
-      sb.from('statement_line_view')
-        .select('partner_id, subtotal')
-        .in('partner_id', partnerIds)
-        .lt('order_date', from),
-      sb.from('payments')
-        .select('partner_id, amount')
-        .in('partner_id', partnerIds)
-        .lt('payment_date', from)
-    ]);
-    if (prevSalesRes.error) throw prevSalesRes.error;
-    if (prevPaymentsRes.error) throw prevPaymentsRes.error;
-
-    const prevSalesByPartner = groupBy(prevSalesRes.data || [], 'partner_id');
-    const prevPaymentsByPartner = groupBy(prevPaymentsRes.data || [], 'partner_id');
-
-    const customers = partners
-      .map(partner => {
-        const partnerLines = linesByPartner.get(partner.id) || [];
-        const currentSales = sum(partnerLines, 'subtotal');
-        const currentPaid = sum(paymentsByPartner.get(partner.id) || [], 'amount');
-        const prevSales = sum(prevSalesByPartner.get(partner.id) || [], 'subtotal');
-        const prevPaid = sum(prevPaymentsByPartner.get(partner.id) || [], 'amount');
-        const prevBalance = prevSales - prevPaid;
-
-        return {
-          partner,
-          lines: partnerLines,
-          currentSales,
-          currentPaid,
-          prevPaid,
-          prevBalance,
-          totalBalance: prevBalance + currentSales - currentPaid
-        };
-      })
-      .sort((a, b) => (a.partner.name || '').localeCompare(b.partner.name || '', 'zh-Hant'));
+    currentCustomers = customers;
+    currentFrom = from;
+    currentTo = to;
+    loadedPartners.clear();
 
     renderStatements(customers, from, to);
   } catch (error) {
@@ -185,6 +139,29 @@ function renderStatements(customers, from, to) {
   activePartnerId = customers[0].partner.id;
   btnPrintAll.disabled = false;
   syncSelectionUI();
+
+  // 第一位客戶預設就在畫面上，立刻載入其明細；其餘客戶切到時才載入。
+  loadLines(activePartnerId);
+}
+
+// 載入單一客戶的明細並填入其 section。已載入過的直接略過，避免重複切換時重撈。
+async function loadLines(partnerId) {
+  if (loadedPartners.has(partnerId)) return;
+
+  const section = statementArea.querySelector(`.statement-section[data-partner-id="${partnerId}"]`);
+  const tbody = section?.querySelector('.statement-table tbody');
+  if (!tbody) return;
+
+  try {
+    const lines = await fetchStatementLines(partnerId, currentFrom, currentTo);
+    tbody.innerHTML = renderLineRows(lines);
+    loadedPartners.add(partnerId);
+  } catch (error) {
+    console.error('Error loading statement lines:', error);
+    // 不加進 loadedPartners：保留下次切換或列印時重試的機會。
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center">明細載入失敗，請重新切換此客戶</td></tr>';
+    showToast('載入明細失敗: ' + error.message, 'error');
+  }
 }
 
 function syncSelectionUI() {
@@ -214,27 +191,7 @@ function toggleSelectAll(isSelected) {
 }
 
 function renderStatementSection(customer, from, to, isActive) {
-  const { partner, lines, prevBalance, prevPaid, currentSales, currentPaid, totalBalance } = customer;
-
-  let lastOrderNo = null;
-  const rows = lines.length === 0
-    ? '<tr><td colspan="8" class="text-center">此期間無出貨紀錄</td></tr>'
-    : lines.map(line => {
-        const showOrderInfo = line.order_no !== lastOrderNo;
-        lastOrderNo = line.order_no;
-        return `
-          <tr>
-            <td>${showOrderInfo ? escapeHtml(formatDate(line.order_date)) : ''}</td>
-            <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
-            <td>${escapeHtml(line.product_name)}</td>
-            <td>${escapeHtml(line.spec || '')}</td>
-            <td>${escapeHtml(line.qty)}</td>
-            <td>${escapeHtml(line.unit || '')}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.unit_price))}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.subtotal))}</td>
-          </tr>
-        `;
-      }).join('');
+  const { partner, prevBalance, prevPaid, currentSales, currentPaid, totalBalance } = customer;
 
   return `
     <section class="statement-section${isActive ? ' is-active' : ''}"
@@ -276,7 +233,7 @@ function renderStatementSection(customer, from, to, isActive) {
                 <th>金額</th>
               </tr>
             </thead>
-            <tbody>${rows}</tbody>
+            <tbody>${LINES_LOADING}</tbody>
           </table>
         </div>
 
@@ -302,6 +259,31 @@ function renderStatementSection(customer, from, to, isActive) {
   `;
 }
 
+// 明細列渲染。抽成獨立函式，讓「初次建骨架」與「按需載入後填入」共用同一段。
+function renderLineRows(lines) {
+  if (lines.length === 0) {
+    return '<tr><td colspan="8" class="text-center">此期間無出貨紀錄</td></tr>';
+  }
+
+  let lastOrderNo = null;
+  return lines.map(line => {
+    const showOrderInfo = line.order_no !== lastOrderNo;
+    lastOrderNo = line.order_no;
+    return `
+      <tr>
+        <td>${showOrderInfo ? escapeHtml(formatDate(line.order_date)) : ''}</td>
+        <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
+        <td>${escapeHtml(line.product_name)}</td>
+        <td>${escapeHtml(line.spec || '')}</td>
+        <td>${escapeHtml(line.qty)}</td>
+        <td>${escapeHtml(line.unit || '')}</td>
+        <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.unit_price))}</td>
+        <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.subtotal))}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function selectPartner(partnerId) {
   activePartnerId = partnerId;
 
@@ -317,6 +299,9 @@ function selectPartner(partnerId) {
     section.classList.toggle('is-active', isActive);
     section.hidden = !isActive;
   });
+
+  // 不 await：切換要即時，明細載入完成後會自行填入該 section。
+  loadLines(partnerId);
 }
 
 function applySelectionToSections() {
@@ -346,6 +331,24 @@ function printWithMode(mode) {
   }
 }
 
+// 列印要輸出完整明細，但明細是按需載入的——先把目標客戶中「從沒點開過」的補撈進 DOM 再送印。
+async function preparePrintAndPrint(mode, partnerIds, button) {
+  const previousText = button.textContent;
+  button.disabled = true;
+  button.textContent = '準備中...';
+  try {
+    await Promise.all(partnerIds.map(id => loadLines(id)));
+    if (mode === 'print-selected') applySelectionToSections();
+    printWithMode(mode);
+  } catch (error) {
+    console.error('Error preparing print:', error);
+    showToast('準備列印失敗: ' + error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = previousText;
+  }
+}
+
 function setupEventListeners() {
   btnSearch.addEventListener('click', searchStatements);
 
@@ -365,11 +368,11 @@ function setupEventListeners() {
 
   btnPrintSelected.addEventListener('click', () => {
     if (selectedIds.size === 0) return;
-    applySelectionToSections();
-    printWithMode('print-selected');
+    preparePrintAndPrint('print-selected', [...selectedIds], btnPrintSelected);
   });
 
-  btnPrintAll.addEventListener('click', () => printWithMode('print-all'));
+  btnPrintAll.addEventListener('click', () =>
+    preparePrintAndPrint('print-all', currentCustomers.map(c => c.partner.id), btnPrintAll));
 }
 
 requireAuth(init);
