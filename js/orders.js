@@ -509,6 +509,12 @@ function setOrderModalMode(mode) {
   // 要改型別應作廢重開，而非就地修改。
   document.getElementById('order-type').disabled = !isCreate;
 
+  // 調整單改由商品頁「快速庫存調整」建立（語意用「目標庫存」比「差額」更直覺、不易填錯）。
+  // option 仍保留在 DOM：既有調整單編輯時要靠它正確顯示型別，saveOrder 的 adjust
+  // 豁免（type !== 'adjust'）也依賴這個值。這裡只在「新增單據」時把它藏起來，不讓再開新調整單。
+  const adjustOption = document.querySelector('#order-type option[value="adjust"]');
+  if (adjustOption) adjustOption.hidden = isCreate;
+
   // 已確認單據只開放備註；改動明細或金額等同改寫已生效的庫存與帳務。
   const headerLocked = isConfirmed;
   ['order-date', 'order-partner', 'order-discount', 'order-tax'].forEach(id => {
