@@ -3,7 +3,7 @@
 // 會操作 DOM 的共用元件（toast / modal / sidebar / 分頁渲染）請放 ui.js。
 // ============================================================
 
-export const PAGE_SIZE = 10;
+export const PAGE_SIZE = 5;
 
 export function formatCurrency(amount) {
   return new Intl.NumberFormat('zh-TW', {
