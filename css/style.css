@@ -392,6 +392,62 @@ html.sidebar-collapsed .chevron-icon {
   border-color: var(--primary);
 }
 
+/* Checkbox：全站共用的自訂核取方塊（方角、粗邊、勾選填 primary 橘）
+   用法：<label class="checkbox"><input type="checkbox"><span class="checkbox-box">
+           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                stroke-linecap="round" stroke-linejoin="round">
+             <polyline points="20 6 9 17 4 12"></polyline></svg>
+         </span><span>選項文字</span></label>
+   原生 input 隱藏、由 .checkbox-box 呈現外觀，所以 input 必須「緊鄰」.checkbox-box。 */
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.checkbox-box {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border: 2px solid var(--border-color);
+  background: white;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.checkbox-box svg {
+  width: 12px;
+  height: 12px;
+  stroke: white;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.checkbox input:checked + .checkbox-box {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.checkbox input:checked + .checkbox-box svg {
+  opacity: 1;
+}
+
+.checkbox input:focus-visible + .checkbox-box {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Tables */
 .table-responsive {
   overflow-x: auto;

@@ -151,11 +151,16 @@ function renderStatements(customers, from, to) {
     const id = escapeHtml(customer.partner.id);
     return `
       <div class="statement-tab${index === 0 ? ' is-active' : ''}" data-partner-id="${id}">
-        <input type="checkbox"
-               class="tab-check"
-               data-partner-id="${id}"
-               checked
-               aria-label="選取 ${escapeHtml(customer.partner.name)} 以供列印">
+        <label class="checkbox">
+          <input type="checkbox"
+                 class="tab-check"
+                 data-partner-id="${id}"
+                 checked
+                 aria-label="選取 ${escapeHtml(customer.partner.name)} 以供列印">
+          <span class="checkbox-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+        </label>
         <button type="button"
                 class="tab-label"
                 role="tab"

@@ -38,6 +38,11 @@
       width: 100%;
       margin-top: 0.5rem;
     }
+    .login-remember {
+      margin-bottom: 0.75rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
@@ -55,6 +60,13 @@
         <label for="login-password">密碼</label>
         <input type="password" id="login-password" class="form-control" autocomplete="current-password">
       </div>
+      <label class="login-remember checkbox">
+        <input type="checkbox" id="remember-me">
+        <span class="checkbox-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
+        <span>記住帳號</span>
+      </label>
       <button class="btn btn-primary" id="btn-login">登入</button>
     </div>
   </div>

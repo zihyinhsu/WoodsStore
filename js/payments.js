@@ -537,7 +537,12 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
       <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-allocatable="${escapeHtml(r.allocatable)}"
            style="padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
         <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
+          <label class="checkbox">
+            <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
+            <span class="checkbox-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </span>
+          </label>
           <span style="flex: 1;">
             ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
             <span class="text-muted" style="font-size: 0.8rem; display: block;">

@@ -50,11 +50,7 @@
       cursor: pointer;
       user-select: none;
     }
-    .select-all-label input {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-    }
+    /* 核取方塊外觀改用全站共用的 .checkbox（見 style.css），不再自訂 input 尺寸 */
     .select-count {
       color: var(--text-muted, #718096);
       font-size: 0.9rem;
@@ -80,12 +76,7 @@
       color: #fff;
       font-weight: 600;
     }
-    .tab-check {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-      flex-shrink: 0;
-    }
+    /* .tab-check 外觀改用全站共用的 .checkbox（見 style.css） */
     .tab-label {
       display: inline-flex;
       align-items: center;
@@ -297,8 +288,11 @@
     <p id="statement-hint" class="statement-hint">請選擇日期區間後按「查詢」，系統會列出該期間有對帳單的客戶。</p>
 
     <div id="statement-toolbar" class="statement-toolbar" hidden>
-      <label class="select-all-label">
+      <label class="select-all-label checkbox">
         <input type="checkbox" id="select-all">
+        <span class="checkbox-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        </span>
         <span>全選</span>
       </label>
       <span id="select-count" class="select-count"></span>

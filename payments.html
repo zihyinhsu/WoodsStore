@@ -92,11 +92,7 @@
       cursor: pointer;
       user-select: none;
     }
-    .balance-settled-toggle input {
-      width: 18px;
-      height: 18px;
-      cursor: pointer;
-    }
+    /* 核取方塊外觀改用全站共用的 .checkbox（見 style.css），這裡不再自訂 input 尺寸 */
 
     /* Search Bar Styles */
     .search-bar {
@@ -272,8 +268,11 @@
         <div class="balance-controls">
           <input type="text" id="balance-keyword" class="form-control balance-keyword"
                  placeholder="搜尋客戶編號、名稱、統編...">
-          <label class="balance-settled-toggle">
+          <label class="balance-settled-toggle checkbox">
             <input type="checkbox" id="toggle-settled">
+            <span class="checkbox-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </span>
             <span>顯示已結清客戶</span>
           </label>
         </div>
