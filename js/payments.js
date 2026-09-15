@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink } from './utils.js';
 
 let currentPage = 1;
@@ -1041,4 +1042,4 @@ function setupEventListeners() {
   btnAutoAllocate.addEventListener('click', autoAllocate);
 }
 
-onReady(init);
+requireAuth(init);

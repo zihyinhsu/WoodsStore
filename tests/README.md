@@ -34,6 +34,18 @@ node tests/sorting.test.cjs     # 或直接指定檔案
 BASE_URL=http://localhost:8080 node tests/run-all.cjs
 ```
 
+## 重要：測試需登入
+
+RLS 已限 `authenticated`，`helpers.js` 的 `launch()` 會在跑任何流程前先登入，
+否則所有查詢回空、頁面全紅。請以環境變數提供測試帳號（不寫死進版控）：
+
+```bash
+TEST_EMAIL=someone@example.com TEST_PASSWORD=... npm test
+```
+
+此帳號需先在 Supabase → Authentication 建立。登入走 `/auth/v1/*`，不在寫入攔截
+（`/rest/v1/*`）範圍內，因此不受 `allowWrites` 影響。
+
 ## 重要：測試預設不寫入資料庫
 
 這個專案直連正式 Supabase，沒有獨立的測試資料庫。`helpers.js` 的 `launch()`

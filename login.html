@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登入 - 藝境裝潢材料行</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+TC:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    /* 全域 body 有 padding-left: 240px 給側邊欄留位（且 style.css 被打包成 link
+       排在此 inline style 之後，覆蓋不掉），登入頁沒有側邊欄。改用 fixed inset:0
+       相對視窗定位，直接脫離 body 的 padding 才能真正置中。 */
+    .login-wrap {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+    }
+    .login-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+    .login-brand .brand-text {
+      font-size: 1.15rem;
+      font-weight: 700;
+    }
+    .login-card .btn {
+      width: 100%;
+      margin-top: 0.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="glass-card login-card">
+      <div class="login-brand">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+        <span class="brand-text">藝境裝潢材料行</span>
+      </div>
+      <div class="form-group">
+        <label for="login-email">帳號</label>
+        <input type="email" id="login-email" class="form-control" autocomplete="username" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label for="login-password">密碼</label>
+        <input type="password" id="login-password" class="form-control" autocomplete="current-password">
+      </div>
+      <button class="btn btn-primary" id="btn-login">登入</button>
+    </div>
+  </div>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

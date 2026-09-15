@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
 
 let currentPage = 1;
@@ -792,4 +793,4 @@ function setupEventListeners() {
   bindSubmitOnce('btn-save-draft', () => saveOrder('draft'));
 }
 
-onReady(init);
+requireAuth(init);

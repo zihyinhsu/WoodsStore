@@ -3,6 +3,7 @@
 // 這裡只放會操作 DOM 或瀏覽器狀態的共用元件。
 // 純函式（格式化、日期換算、數值處理）請放 utils.js。
 import { totalPages } from './utils.js';
+import { sb } from './supabase.js';
 
 // 各頁分頁列的樣板完全一致，只差資料筆數的單位文案，
 // 因此統一由這裡渲染，各頁仍自行綁定 prev/next 的載入行為。
@@ -179,6 +180,34 @@ export function initSidebar() {
   if (backdrop) {
     backdrop.addEventListener('click', toggleMobileSidebar);
   }
+
+  // 登入頁沒有側邊欄，跳過；其餘頁面在側邊欄底部補上使用者資訊與登出鈕。
+  if (sidebar) renderAuthControls(sidebar);
+}
+
+// 登出鈕與使用者 email 的 markup 在六個頁面的側邊欄完全一致，
+// 集中在這裡動態插入，而非各頁各寫一份（分頁列散落五支檔案的教訓）。
+function renderAuthControls(sidebar) {
+  const wrap = document.createElement('div');
+  wrap.className = 'sidebar-user';
+  wrap.innerHTML = `
+    <span class="sidebar-user-email"></span>
+    <button class="btn btn-outline sidebar-logout" type="button">登出</button>
+  `;
+  sidebar.insertBefore(wrap, sidebar.querySelector('.sidebar-toggle'));
+
+  // email 來自已驗證的 JWT，用 textContent 寫入（非 innerHTML），不必跳脫。
+  sb.auth.getClaims().then(({ data }) => {
+    const email = data?.claims?.email || '';
+    const el = wrap.querySelector('.sidebar-user-email');
+    el.textContent = email;
+    el.title = email;
+  });
+
+  wrap.querySelector('.sidebar-logout').addEventListener('click', async () => {
+    await sb.auth.signOut();
+    location.replace('login.html');
+  });
 }
 
 // 勿改回單純的 addEventListener('DOMContentLoaded')：打包後 chunk 較大，

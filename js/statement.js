@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { showToast, onReady } from './ui.js';
+import { showToast } from './ui.js';
+import { requireAuth } from './auth.js';
 import { formatCurrency, formatDate, escapeHtml, sum, groupBy, dateRange } from './utils.js';
 
 // DOM Elements
@@ -361,4 +362,4 @@ function setupEventListeners() {
   btnPrintAll.addEventListener('click', () => printWithMode('print-all'));
 }
 
-onReady(init);
+requireAuth(init);

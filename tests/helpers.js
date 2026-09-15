@@ -34,7 +34,26 @@ async function launch({ allowWrites = false } = {}) {
     });
   }
 
+  await signIn(page);
+
   return { browser, page, errors, blockedWrites };
+}
+
+// RLS 已限 authenticated，測試連的是正式庫，跑任何流程前必須先登入，
+// 否則所有查詢回空、頁面全紅。登入走 /auth/v1/*，不在上面 /rest/v1/*
+// 的寫入攔截範圍內，因此不受 allowWrites 影響。
+async function signIn(page) {
+  const email = process.env.TEST_EMAIL;
+  const password = process.env.TEST_PASSWORD;
+  if (!email || !password) {
+    throw new Error('測試需登入：請設定環境變數 TEST_EMAIL / TEST_PASSWORD');
+  }
+  await page.goto(`${BASE_URL}/login.html`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.fill('#login-email', email);
+  await page.fill('#login-password', password);
+  await page.click('#btn-login');
+  // 登入成功會 location.replace 到 index.html
+  await page.waitForURL('**/index.html', { timeout: 60000 });
 }
 
 async function goto(page, path) {

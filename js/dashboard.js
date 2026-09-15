@@ -4,7 +4,8 @@ import {
   fetchCostTotals,
   fetchPeriodSummary
 } from './inventory-cost.js';
-import { showToast, onReady, renderPagination } from './ui.js';
+import { showToast, renderPagination } from './ui.js';
+import { requireAuth } from './auth.js';
 import { formatCurrency, dateRange, totalPages, escapeHtml, round2 } from './utils.js';
 
 const dateFrom = document.getElementById('cost-date-from');
@@ -130,7 +131,7 @@ async function loadDashboard() {
   }
 }
 
-onReady(() => {
+requireAuth(() => {
   loadDashboard();
 
   btnSearch.addEventListener('click', resetToFirstPageAndLoad);

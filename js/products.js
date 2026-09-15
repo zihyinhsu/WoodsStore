@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
@@ -530,7 +531,7 @@ async function saveAdjustment() {
 }
 
 // Event Listeners
-onReady(() => {
+requireAuth(() => {
   const searchInput = document.getElementById('search-input');
 
   const hashMatch = window.location.hash.match(/^#search=(.+)$/);

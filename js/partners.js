@@ -1,5 +1,6 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination } from './ui.js';
+import { requireAuth } from './auth.js';
 import { PAGE_SIZE, totalPages, escapeHtml } from './utils.js';
 
 let currentPartners = [];
@@ -127,7 +128,7 @@ async function savePartner() {
   }
 }
 
-onReady(() => {
+requireAuth(() => {
   loadPartners();
 
   document.querySelectorAll('.tab-btn').forEach(btn => {

@@ -21,13 +21,16 @@ HTML + CSS + Vanilla JS（ES Modules）
 Supabase
 ├── Postgres（4 表 + 2 View）
 ├── RPC（create_order / confirm_order / void_order，原子性 + 防超賣）
-└── RLS
+├── RLS（限 authenticated，未登入無法讀寫）
+└── Auth（Email 密碼登入，帳號在 Dashboard 建立、關閉自助註冊）
 ```
 
 ## 快速開始
 
 1. 到 [Supabase](https://supabase.com) 建立專案
 2. 將 `sql/migration.sql` 與 `sql/patch-*.sql` 依序貼到 SQL Editor 執行
+   （含 `patch-017-auth.sql`，會關閉匿名存取——套用前先在 Authentication
+   建立員工帳號並關閉「Allow new users to sign up」，否則自己也會被鎖在外面）
 3. 複製 `.env.example` 為 `.env`，填入 Project URL 與 Publishable (anon) key
 4. `npm install` — 安裝相依套件
 5. `npm run dev` 啟動開發伺服器（http://localhost:5173），支援 HMR，存檔即更新
@@ -82,7 +85,7 @@ npm test          # 執行全部 E2E 測試
 
 ## 注意事項
 
-- 目前為無登入版：RLS 對 anon 全開，僅適合個人／內網使用
+- 需登入：RLS 限 `authenticated`，所有頁面須先透過 Supabase Auth 登入（`login.html`）；帳號在 Supabase Dashboard 手動建立，並關閉自助註冊
 - 庫存採流水帳設計：單據明細即異動紀錄，不可直接改庫存數字
 - 單據不可編輯：開錯請作廢重開，保留完整追溯紀錄
 - 報表聚合一律寫在 SQL function（見 `sql/patch-008-dashboard-report.sql`），前端只取彙總結果並分頁，不把明細搬到瀏覽器計算
