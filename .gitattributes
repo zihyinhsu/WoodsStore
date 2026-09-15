@@ -1,0 +1,15 @@
+# 全 repo 內容一律以 LF 為換行。
+# 沒有這個設定時，Windows 編輯器或 git 的 autocrlf=true 會在存檔/簽出時把檔案轉成 CRLF，
+# 導致 git 把整個檔案判為變動（每一行都多了 \r），review 與 blame 都被雜訊淹沒。
+# eol=lf 會強制工作目錄也用 LF，蓋掉個人的 autocrlf 設定，確保跨機器一致。
+* text=auto eol=lf
+
+# 二進位檔不做換行轉換（避免被當文字破壞內容）。
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.woff  binary
+*.woff2 binary
