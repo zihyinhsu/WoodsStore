@@ -73,6 +73,28 @@
       font-size: 1.25rem;
       font-weight: 700;
     }
+    .cost-charts {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.5rem;
+    }
+    .cost-chart-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+    }
+    /* chart.js 在 maintainAspectRatio:false 下靠外層容器決定高度，
+       這裡給固定高度，canvas 才有可撐開的畫布，否則會塌成 0 高。 */
+    .cost-chart-canvas {
+      position: relative;
+      height: 320px;
+    }
+    .cost-chart-empty {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      padding: 2rem 0;
+      text-align: center;
+    }
     @media (max-width: 1024px) {
       .grid-cols-4 {
         grid-template-columns: repeat(2, 1fr);
@@ -80,10 +102,16 @@
       .cost-totals {
         grid-template-columns: repeat(2, 1fr);
       }
+      .cost-charts {
+        grid-template-columns: 1fr;
+      }
     }
     @media (max-width: 768px) {
       .cost-totals {
         grid-template-columns: 1fr;
+      }
+      .cost-chart-canvas {
+        height: 260px;
       }
     }
   </style>
@@ -172,6 +200,23 @@
         <input type="date" id="cost-date-to" class="form-control">
       </div>
       <button class="btn btn-primary" id="btn-cost-search">查詢</button>
+    </div>
+
+    <div class="glass-card mb-4 cost-charts">
+      <div class="cost-chart-block">
+        <h4 class="cost-chart-title">進出貨趨勢（按月）</h4>
+        <p class="cost-chart-empty" id="cost-trend-empty" hidden>此期間沒有進出貨紀錄</p>
+        <div class="cost-chart-canvas">
+          <canvas id="cost-trend-chart"></canvas>
+        </div>
+      </div>
+      <div class="cost-chart-block">
+        <h4 class="cost-chart-title">商品毛利排行</h4>
+        <p class="cost-chart-empty" id="cost-ranking-empty" hidden>此期間沒有進出貨紀錄</p>
+        <div class="cost-chart-canvas">
+          <canvas id="cost-ranking-chart"></canvas>
+        </div>
+      </div>
     </div>
 
     <div class="glass-card">

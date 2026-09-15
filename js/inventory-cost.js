@@ -42,6 +42,43 @@ export async function fetchCostTotals(from, to) {
   };
 }
 
+// 按月進出貨趨勢（趨勢圖 A）。RPC 已按月分組排序，這裡只把數值轉成 Number，
+// 讓圖表層拿到乾淨的資料結構，不必再處理 Postgres numeric 回傳的字串。
+export async function fetchCostTrend(from, to) {
+  const { data, error } = await sb.rpc('cost_trend', {
+    p_from: toDateParam(from),
+    p_to: toDateParam(to)
+  });
+
+  if (error) throw error;
+
+  return (data || []).map(row => ({
+    month: row.month,
+    purchaseAmount: Number(row.purchase_amount),
+    saleAmount: Number(row.sale_amount),
+    estimatedProfit: Number(row.estimated_profit)
+  }));
+}
+
+// 商品毛利排行（排行圖 B）。RPC 已回頭尾各 limit 名、由高到低排好，
+// 前端直接照順序畫，負毛利再於圖表層改色。
+export async function fetchCostRanking(from, to, limit = 5) {
+  const { data, error } = await sb.rpc('cost_ranking', {
+    p_from: toDateParam(from),
+    p_to: toDateParam(to),
+    p_limit: limit
+  });
+
+  if (error) throw error;
+
+  return (data || []).map(row => ({
+    productId: row.product_id,
+    sku: row.sku,
+    name: row.name,
+    estimatedProfit: Number(row.estimated_profit)
+  }));
+}
+
 // 日期沒填代表「累計」（不限該側）。傳空字串給 date 參數 Postgres 會直接報錯，
 // 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
 function toDateParam(value) {
