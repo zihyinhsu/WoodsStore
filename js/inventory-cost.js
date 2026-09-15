@@ -99,8 +99,10 @@ export async function fetchProductCostSummary(productId, from, to) {
   const purchaseAmount = Number(row.purchase_amount) || 0;
   const saleQty = Number(row.sale_qty) || 0;
   const saleAmount = Number(row.sale_amount) || 0;
+  // cost 為出貨成本快照合計（Σ unit_cost × 數量），毛利與平均出貨成本都以它為基礎。
+  const cost = Number(row.cost) || 0;
 
-  return { purchaseQty, purchaseAmount, saleQty, saleAmount };
+  return { purchaseQty, purchaseAmount, saleQty, saleAmount, cost };
 }
 
 export async function fetchProductMovementPage({ productId, from, to, page }) {

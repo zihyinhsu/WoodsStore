@@ -238,22 +238,26 @@ async function loadCostAnalysisData(productId, container, from, to) {
 
     costMovementTotal = movements.total;
 
-    const { purchaseQty, purchaseAmount, saleQty, saleAmount } = summary;
+    const { saleQty, saleAmount, cost } = summary;
 
     const product = currentProducts.find(p => p.id === productId);
     const unit = product ? product.unit : '個';
 
-    const avgPurchaseCost = purchaseQty > 0 ? purchaseAmount / purchaseQty : 0;
+    // 成本改用出貨成本快照：cost 是 Σ(每筆出貨 unit_cost × 數量)，
+    // 不再拿查詢區間的進貨均價估算，換區間也不會變。
+    const avgSaleCost = saleQty > 0 ? cost / saleQty : 0;
     const avgSalePrice = saleQty > 0 ? saleAmount / saleQty : 0;
-    
+
     let grossProfit = '--';
     let grossMargin = '--';
     let marginClass = '';
-    
-    if (purchaseQty > 0 && saleQty > 0) {
-      const profit = saleAmount - (avgPurchaseCost * saleQty);
+
+    // 只要有出貨就能算毛利：成本來自出貨當下的快照，與這區間有沒有進貨無關
+    //（賣舊庫存、本期未進貨的商品也該顯示毛利）。
+    if (saleQty > 0) {
+      const profit = saleAmount - cost;
       grossProfit = formatCurrency(profit);
-      
+
       if (saleAmount > 0) {
         const margin = (profit / saleAmount) * 100;
         grossMargin = margin.toFixed(1) + '%';
@@ -327,9 +331,9 @@ async function loadCostAnalysisData(productId, container, from, to) {
     contentDiv.innerHTML = `
       <div class="metric-cards">
         <div class="metric-card">
-          <div class="metric-card-title">平均進貨成本</div>
-          <div class="metric-card-value">${purchaseQty > 0 ? formatCurrency(avgPurchaseCost) : '--'}</div>
-          <div class="metric-card-subtitle">進${purchaseQty}${escapeHtml(unit)} ${formatCurrency(purchaseAmount)}</div>
+          <div class="metric-card-title">平均出貨成本</div>
+          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(avgSaleCost) : '--'}</div>
+          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} 成本 ${formatCurrency(cost)}</div>
         </div>
         <div class="metric-card">
           <div class="metric-card-title">平均出貨單價</div>
@@ -339,7 +343,7 @@ async function loadCostAnalysisData(productId, container, from, to) {
         <div class="metric-card">
           <div class="metric-card-title">毛利</div>
           <div class="metric-card-value">${grossProfit}</div>
-          <div class="metric-card-subtitle">出貨總額 - (平均進貨成本 × 出貨量)</div>
+          <div class="metric-card-subtitle">出貨總額 − 出貨成本快照</div>
         </div>
         <div class="metric-card">
           <div class="metric-card-title">毛利率</div>
