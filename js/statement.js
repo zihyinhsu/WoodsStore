@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast } from './ui.js';
 import { requireAuth } from './auth.js';
-import { formatCurrency, formatDate, escapeHtml, sum, groupBy, dateRange } from './utils.js';
+import { formatCurrency, formatDate, escapeHtml, sum, groupBy, dateRange, round2 } from './utils.js';
 
 // DOM Elements
 const dateFrom = document.getElementById('statement-date-from');
@@ -149,6 +149,9 @@ function renderStatements(customers, from, to) {
 
   tabsEl.innerHTML = customers.map((customer, index) => {
     const id = escapeHtml(customer.partner.id);
+    // 用 round2 收斂浮點尾數再判斷正負，避免 0.0000001 這種殘值被歸成「欠款」
+    const bal = round2(customer.totalBalance);
+    const balClass = bal > 0 ? 'tab-balance--due' : bal < 0 ? 'tab-balance--credit' : 'tab-balance--zero';
     return `
       <div class="statement-tab${index === 0 ? ' is-active' : ''}" data-partner-id="${id}">
         <label class="checkbox">
@@ -169,7 +172,7 @@ function renderStatements(customers, from, to) {
                 aria-controls="panel-${id}"
                 data-partner-id="${id}">
           <span>${escapeHtml(customer.partner.name)}</span>
-          <span class="tab-balance">${escapeHtml(formatCurrency(customer.totalBalance))}</span>
+          <span class="tab-balance ${balClass}">${escapeHtml(formatCurrency(customer.totalBalance))}</span>
         </button>
       </div>
     `;

@@ -27,17 +27,33 @@
       color: var(--text-muted, #718096);
       margin-bottom: 1rem;
     }
+    .statement-layout {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 1.5rem;
+      align-items: start;
+    }
+    /* 左欄客戶清單置頂常駐，右欄預覽很長時仍看得到清單與勾選 */
+    .statement-sidebar {
+      position: sticky;
+      top: 1.5rem;
+    }
     .statement-tabs {
       display: flex;
-      flex-wrap: wrap;
+      flex-direction: column;
       gap: 0.5rem;
-      margin-bottom: 1rem;
+      /* 客戶多時由清單自身捲動，不把整頁往下撐長 */
+      max-height: calc(100vh - 12rem);
+      overflow-y: auto;
     }
     .statement-toolbar {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 1rem;
       margin-bottom: 0.75rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid var(--border-color);
     }
     .statement-toolbar[hidden] {
       display: none;
@@ -56,43 +72,61 @@
       font-size: 0.9rem;
     }
     .statement-tab {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      min-height: 44px;
-      padding: 0 0.5rem 0 0.75rem;
-      border: 1px solid var(--border-light, #cbd5e0);
+      display: flex;
+      align-items: stretch;
+      min-height: 48px;
+      /* 左緣固定 3px：未選取為一般邊框色，is-active 時轉主色條標示目前檢視的客戶 */
+      border: 2px solid var(--border-color);
+      border-left-width: 3px;
       background: #fff;
-      color: #2d3748;
+      color: var(--text-main);
       font: inherit;
-      transition: background-color 0.15s ease, border-color 0.15s ease;
+      transition: background-color var(--transition), border-color var(--transition);
     }
     .statement-tab:hover {
-      background: #edf2f7;
+      background: var(--bg-page);
     }
     .statement-tab.is-active {
-      background: #2b6cb0;
-      border-color: #2b6cb0;
-      color: #fff;
-      font-weight: 600;
+      border-left-color: var(--primary);
+      background: var(--bg-card);
     }
-    /* .tab-check 外觀改用全站共用的 .checkbox（見 style.css） */
+    /* .tab-check 外觀改用全站共用的 .checkbox（見 style.css），置於整列最左 */
+    .statement-tab .checkbox {
+      padding: 0 0.5rem 0 0.6rem;
+    }
     .tab-label {
+      flex: 1;
       display: inline-flex;
       align-items: center;
-      gap: 0.5rem;
+      justify-content: space-between;
+      gap: 0.75rem;
       min-height: 44px;
-      padding: 0 0.5rem;
+      padding: 0 0.75rem 0 0.25rem;
       background: none;
       border: none;
       color: inherit;
       font: inherit;
+      text-align: left;
       cursor: pointer;
     }
-    .statement-tab .tab-balance {
-      font-size: 0.85rem;
-      opacity: 0.85;
+    /* 客戶名過長時省略，不撐破清單固定寬度 */
+    .tab-label > span:first-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
+    .statement-tab.is-active .tab-label {
+      font-weight: 600;
+    }
+    .statement-tab .tab-balance {
+      flex-shrink: 0;
+      font-size: 0.9rem;
+      font-variant-numeric: tabular-nums;
+    }
+    /* 餘額語意色：>0 為客戶欠款（中性醒目）、<0 為溢繳（成功色）、=0 已結清（弱化） */
+    .tab-balance--due { color: var(--text-main); font-weight: 600; }
+    .tab-balance--credit { color: var(--success); font-weight: 600; }
+    .tab-balance--zero { color: var(--text-muted); }
     .statement-section[hidden] {
       display: none;
     }
@@ -178,10 +212,29 @@
       font-size: 0.7rem;
       color: #888;
     }
+    @media (max-width: 768px) {
+      .statement-layout {
+        grid-template-columns: 1fr;
+      }
+      .statement-sidebar {
+        position: static;
+      }
+      .statement-tabs {
+        max-height: 40vh;
+      }
+    }
+    /* 對帳單欄位多，改橫向列印：每頁變寬變矮，容得下更多明細、減少換頁 */
+    @page {
+      size: landscape;
+    }
     @media print {
       .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop,
-      .statement-tabs, .statement-hint, .statement-toolbar {
+      .statement-sidebar, .statement-tabs, .statement-hint, .statement-toolbar {
         display: none !important;
+      }
+      /* 左欄整欄隱藏後，兩欄 grid 還原單欄，讓對帳單預覽佔滿版面寬度 */
+      .statement-layout {
+        display: block !important;
       }
       .container {
         display: block !important;
@@ -287,20 +340,24 @@
 
     <p id="statement-hint" class="statement-hint">請選擇日期區間後按「查詢」，系統會列出該期間有對帳單的客戶。</p>
 
-    <div id="statement-toolbar" class="statement-toolbar" hidden>
-      <label class="select-all-label checkbox">
-        <input type="checkbox" id="select-all">
-        <span class="checkbox-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-        </span>
-        <span>全選</span>
-      </label>
-      <span id="select-count" class="select-count"></span>
+    <div class="statement-layout">
+      <aside class="statement-sidebar">
+        <div id="statement-toolbar" class="statement-toolbar" hidden>
+          <label class="select-all-label checkbox">
+            <input type="checkbox" id="select-all">
+            <span class="checkbox-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            </span>
+            <span>全選</span>
+          </label>
+          <span id="select-count" class="select-count"></span>
+        </div>
+
+        <div id="statement-tabs" class="statement-tabs" role="tablist" aria-label="客戶對帳單"></div>
+      </aside>
+
+      <div id="statement-area" class="statement-detail"></div>
     </div>
-
-    <div id="statement-tabs" class="statement-tabs" role="tablist" aria-label="客戶對帳單"></div>
-
-    <div id="statement-area"></div>
   </div>
 
   <script type="module" src="js/statement.js"></script>
