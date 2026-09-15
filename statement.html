@@ -110,8 +110,12 @@
       text-align: left;
       cursor: pointer;
     }
-    /* 客戶名過長時省略，不撐破清單固定寬度 */
+    /* 客戶名過長時省略，不撐破清單固定寬度。
+       min-width: 0 是關鍵：flex item 預設 min-width 為 auto（內容寬），
+       少了它名稱不肯收縮，會把右側餘額擠到換行甚至裁切（窄螢幕特別明顯）。 */
     .tab-label > span:first-child {
+      flex: 1;
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -123,6 +127,7 @@
       flex-shrink: 0;
       font-size: 0.9rem;
       font-variant-numeric: tabular-nums;
+      white-space: nowrap;
     }
     /* 餘額語意色：>0 為客戶欠款（中性醒目）、<0 為溢繳（成功色）、=0 已結清（弱化） */
     .tab-balance--due { color: var(--text-main); font-weight: 600; }
@@ -164,10 +169,15 @@
     .customer-info p {
       margin-bottom: 0.25rem;
     }
+    /* 8 欄明細表塞不進窄螢幕時，讓表格自身橫向捲動，
+       不外溢撐破預覽版面；桌機夠寬則不會出現捲軸。列印時另解除（見 @media print）。 */
+    .statement-table-scroll {
+      overflow-x: auto;
+      margin-bottom: 2rem;
+    }
     .statement-table {
       width: 100%;
       border-collapse: collapse;
-      margin-bottom: 2rem;
     }
     .statement-table th, .statement-table td {
       border: 1px solid black;
@@ -214,14 +224,30 @@
       color: #888;
     }
     @media (max-width: 768px) {
+      /* 必須是 minmax(0, 1fr) 而非 1fr：1fr 的最小寬度是 auto（內容最寬處），
+         預覽區的固定寬表格會把單欄撐到超出螢幕，連帶客戶清單一起水平溢出。
+         鎖成 minmax(0, …) 才會把欄寬收回視窗寬，把溢出交還給各元素自行處理。 */
       .statement-layout {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
       }
       .statement-sidebar {
         position: static;
       }
       .statement-tabs {
         max-height: 40vh;
+      }
+      /* 窄螢幕縮小預覽內距，把寬度讓給明細內容 */
+      .statement-preview {
+        padding: 1rem;
+      }
+      /* 固定 380px 會直接溢出手機螢幕，改為滿版自適應 */
+      .totals-table {
+        width: 100%;
+      }
+      /* 客戶資訊兩欄改為可換行堆疊，避免窄螢幕互擠 */
+      .customer-info {
+        flex-wrap: wrap;
+        gap: 0.75rem;
       }
     }
     /* 對帳單欄位多，改橫向列印：每頁變寬變矮，容得下更多明細、減少換頁 */
@@ -247,6 +273,10 @@
         box-shadow: none;
         border: none;
         padding: 0;
+      }
+      /* 列印須完整輸出明細，解除螢幕上的橫向捲動裁切 */
+      .statement-table-scroll {
+        overflow-x: visible;
       }
       /* 列印全部：顯示所有客戶，每位客戶各自分頁 */
       body.print-all .statement-section {

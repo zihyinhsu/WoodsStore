@@ -262,21 +262,23 @@ function renderStatementSection(customer, from, to, isActive) {
           </div>
         </div>
 
-        <table class="statement-table">
-          <thead>
-            <tr>
-              <th>日期</th>
-              <th>單號</th>
-              <th>品名</th>
-              <th>規格</th>
-              <th>數量</th>
-              <th>單位</th>
-              <th>單價</th>
-              <th>金額</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        <div class="statement-table-scroll">
+          <table class="statement-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>單號</th>
+                <th>品名</th>
+                <th>規格</th>
+                <th>數量</th>
+                <th>單位</th>
+                <th>單價</th>
+                <th>金額</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
 
         <div class="statement-footer">
           <table class="totals-table">
