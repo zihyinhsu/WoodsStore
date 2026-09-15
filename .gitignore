@@ -4,6 +4,10 @@ node_modules/
 ### Vite 建置產物
 dist/
 
+### 測試產物（Playwright）
+test-results/
+playwright-report/
+
 ### 環境變數（含連線金鑰，不進版控；範本見 .env.example）
 .env
 .env.local
