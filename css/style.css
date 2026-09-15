@@ -29,9 +29,18 @@
 body {
   font-family: 'Noto Sans TC', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background-color: var(--bg-page);
-  background-image: 
-    repeating-linear-gradient(transparent, transparent 19px, rgba(31,31,31,0.03) 19px, rgba(31,31,31,0.03) 20px), 
-    repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(31,31,31,0.03) 19px, rgba(31,31,31,0.03) 20px);
+  /* 木紋質感：不引入新色相（沿用原網格的 rgba(31,31,31) 深灰），只把方格改成縱向長條。
+     三層週期取 7/23/41px（互質，避免規律感），透明度壓在 0.04 以下才不會壓過內容。 */
+  background-image:
+    repeating-linear-gradient(90deg,
+      transparent, transparent 6px,
+      rgba(31,31,31,0.035) 6px, rgba(31,31,31,0.035) 7px),
+    repeating-linear-gradient(90deg,
+      transparent, transparent 21px,
+      rgba(31,31,31,0.025) 21px, rgba(31,31,31,0.025) 23px),
+    repeating-linear-gradient(90deg,
+      transparent, transparent 40px,
+      rgba(31,31,31,0.03) 40px, rgba(31,31,31,0.03) 41px);
   background-attachment: fixed;
   color: var(--text-main);
   min-height: 100vh;
