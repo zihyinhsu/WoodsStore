@@ -1,6 +1,6 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, onReady, renderPagination } from './ui.js';
-import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
 let currentProducts = [];
@@ -114,6 +114,7 @@ function renderProductsTable(products) {
           : '<span class="badge badge-gray">停用</span>'}
       </td>
       <td>
+        <button class="btn btn-outline btn-adjust" data-id="${p.id}">調整</button>
         <button class="btn btn-outline btn-edit" data-id="${p.id}">編輯</button>
       </td>
     </tr>
@@ -129,9 +130,16 @@ function renderProductsTable(products) {
     });
   });
 
+  document.querySelectorAll('.btn-adjust').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openAdjustModal(e.target.getAttribute('data-id'));
+    });
+  });
+
   document.querySelectorAll('.clickable-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('.btn-edit') || e.target.closest('.badge')) return;
+      if (e.target.closest('.btn-edit') || e.target.closest('.btn-adjust') || e.target.closest('.badge')) return;
       openCostModal(row.getAttribute('data-id'));
     });
   });
@@ -435,6 +443,92 @@ async function saveProduct() {
   }
 }
 
+// 單品庫存調整：改的是「盤點後的實際數量」，送出時反算差額寫成一筆 adjust 流水帳。
+// 不直接改 stock_qty——庫存是流水帳，當前值由異動累加而來，直接覆寫會失去追溯。
+let adjustProductId = null;
+let adjustCurrentStock = 0;
+let adjustUnit = '';
+
+function openAdjustModal(productId) {
+  const product = currentProducts.find(p => p.id === productId);
+  if (!product) return;
+
+  adjustProductId = productId;
+  adjustCurrentStock = product.stock_qty;
+  adjustUnit = product.unit || '';
+
+  document.getElementById('adjust-form').reset();
+  document.getElementById('adjust-modal-title').textContent =
+    `庫存調整 — ${product.name}（${product.sku}）`;
+  document.getElementById('adjust-current-stock').textContent =
+    `${adjustCurrentStock} ${adjustUnit}`;
+  // 不能用 toISOString()：會先轉 UTC，台北時間當天 08:00 前會變成前一天。
+  document.getElementById('adjust-date').value = toDateInputValue(new Date());
+
+  updateAdjustDiff();
+  openModal('adjust-modal');
+}
+
+function updateAdjustDiff() {
+  const hint = document.getElementById('adjust-diff-hint');
+  const raw = document.getElementById('adjust-count').value;
+
+  if (raw === '') {
+    hint.textContent = '輸入盤點後的實際數量，系統會自動算出差額';
+    hint.classList.remove('text-danger');
+    return;
+  }
+
+  const diff = (parseInt(raw) || 0) - adjustCurrentStock;
+  const after = adjustCurrentStock + diff;
+  if (diff === 0) {
+    hint.textContent = `數量未變動（${adjustCurrentStock} ${adjustUnit}）`;
+  } else {
+    const sign = diff > 0 ? '+' : '';
+    hint.textContent = `差額：${sign}${diff} ${adjustUnit}（${adjustCurrentStock} → ${after}）`;
+  }
+  hint.classList.remove('text-danger');
+}
+
+async function saveAdjustment() {
+  const form = document.getElementById('adjust-form');
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+
+  const diff = (parseInt(document.getElementById('adjust-count').value) || 0) - adjustCurrentStock;
+  if (diff === 0) {
+    const hint = document.getElementById('adjust-diff-hint');
+    hint.textContent = '數量未變動，無需調整';
+    hint.classList.add('text-danger');
+    return;
+  }
+
+  try {
+    // 走與進貨／出貨相同的 create_order：調整單無往來對象、無金額，
+    // qty 帶正負號代表增減，unit_price／discount 對 adjust 無意義故填 0。
+    const { error } = await sb.rpc('create_order', {
+      p_type: 'adjust',
+      p_partner: null,
+      p_items: [{ product_id: adjustProductId, qty: diff, unit_price: 0, discount: 0 }],
+      p_note: document.getElementById('adjust-note').value || null,
+      p_order_date: document.getElementById('adjust-date').value,
+      p_discount: 0,
+      p_tax: 0,
+      p_status: 'confirmed'
+    });
+    if (error) throw error;
+
+    showToast('庫存已調整', 'success');
+    closeModal('adjust-modal');
+    loadProducts(document.getElementById('search-input').value);
+  } catch (error) {
+    console.error('Error saving adjustment:', error);
+    showToast('調整失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
 // Event Listeners
 onReady(() => {
   const searchInput = document.getElementById('search-input');
@@ -508,4 +602,7 @@ onReady(() => {
   });
 
   bindSubmitOnce('btn-save-product', saveProduct);
+
+  document.getElementById('adjust-count').addEventListener('input', updateAdjustDiff);
+  bindSubmitOnce('btn-save-adjust', saveAdjustment);
 });

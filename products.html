@@ -283,6 +283,41 @@
     </div>
   </div>
 
+  <!-- Stock Adjustment Modal -->
+  <div class="modal-overlay" id="adjust-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="adjust-modal-title">庫存調整</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <form id="adjust-form">
+          <div class="form-group">
+            <label>目前庫存</label>
+            <div id="adjust-current-stock" style="padding: 0.5rem 0; font-weight: 500;">-</div>
+          </div>
+          <div class="form-group">
+            <label for="adjust-count">盤點後數量 (必填)</label>
+            <input type="number" id="adjust-count" class="form-control" step="1" min="0" required>
+            <small id="adjust-diff-hint" class="text-muted">輸入盤點後的實際數量，系統會自動算出差額</small>
+          </div>
+          <div class="form-group">
+            <label for="adjust-date">日期</label>
+            <input type="date" id="adjust-date" class="form-control">
+          </div>
+          <div class="form-group">
+            <label for="adjust-note">備註</label>
+            <input type="text" id="adjust-note" class="form-control" placeholder="例如：年中盤點盤盈、破損報廢">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline close-btn">取消</button>
+        <button class="btn btn-primary" id="btn-save-adjust">確認調整</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Cost Analysis Modal -->
   <div class="modal-overlay" id="cost-modal">
     <div class="modal-content">
