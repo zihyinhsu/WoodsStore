@@ -844,7 +844,7 @@ tbody tr:hover {
      這樣單格內有多行內容（例如商品名 + 規格）時仍能自然堆疊靠右。 */
   .table--cards td {
     position: relative;
-    padding: 0.6rem 1rem 0.6rem 40%;
+    padding: 0.9rem 1.25rem 0.9rem 40%;
     text-align: right;
     white-space: normal;
     border-bottom: 1px solid var(--border-light);
@@ -881,7 +881,7 @@ tbody tr:hover {
   /* #cost-table td 有 ID 權重的自訂 padding，會蓋掉上面的 padding-left，
      導致欄名與內容重疊；用同帶 ID 的選擇器把讓位的 padding 補回。 */
   #cost-table.table--cards td {
-    padding: 0.6rem 1rem 0.6rem 40%;
+    padding: 0.9rem 1.25rem 0.9rem 40%;
   }
 }
 
