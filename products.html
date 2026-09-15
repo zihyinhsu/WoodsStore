@@ -49,7 +49,9 @@
     }
     .metric-cards {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      /* 四張卡固定並排一列；minmax(0,1fr) 讓欄位可壓縮到容器內，
+         避免長 subtitle 把欄撐破、擠出 modal。 */
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 1rem;
       margin-bottom: 1.5rem;
     }
@@ -345,9 +347,6 @@
           <span id="cost-page-info">第 1 頁</span>
           <button class="btn btn-outline" id="btn-cost-next-page" disabled>下一頁</button>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline close-btn">關閉</button>
       </div>
     </div>
   </div>
