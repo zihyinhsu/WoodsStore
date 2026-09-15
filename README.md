@@ -97,4 +97,4 @@ npm test          # 執行全部 E2E 測試
 - 部署時上傳 `npm run build` 產出的 `dist/`
 - `VITE_` 開頭的環境變數會在 build 時內嵌進產物、瀏覽器可見，只放 publishable (anon) key，存取控制靠 RLS；`service_role` key 絕不可放
 - `.env` 不進版控，新環境請從 `.env.example` 複製；Vercel 上改完環境變數要重新部署才生效
-- 出貨成本為估算值：`order_items` 未保存出貨當下的進價，改以期間進貨均價回推（無進貨則採現行進價），查詢區間一變數字就會變
+- 出貨成本用「確認當下寫定的成本快照」：`order_items.unit_cost` 存出貨那刻截至該日的累計進貨均價（無進貨則退回當時的 `products.cost`），見 `sql/patch-018-order-item-cost-snapshot.sql`。成本綁在該筆出貨上，不隨查詢區間漂移、也不受事後改進價影響；仍屬估算值（純累計均價、非移動平均），無進貨基礎的早期出貨會落在 fallback

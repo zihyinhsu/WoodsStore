@@ -168,10 +168,9 @@ create index if not exists idx_orders_status_type_date
   on orders (status, type, order_date);
 
 -- ============================================
--- 成本口徑（重要）
--- order_items 只保存售價（unit_price），沒有出貨當下的進價快照，
--- 因此出貨成本以「期間內進貨均價」估算，與商品頁成本分析同一口徑；
--- 期間內沒有進貨紀錄的商品，退回商品現行進價（products.cost）。
--- 兩者都是估算值：查詢區間或商品進價一改，歷史成本與毛利就會變動。
--- 若要精確的歷史成本，需在 order_items 增加成本欄位並於建單時寫入快照。
+-- 成本口徑（重要）— 已於 patch-018/019/020 改版
+-- 本 patch 原本的出貨成本是「期間內進貨均價 × 出貨量」，會隨查詢區間漂移。
+-- 現已改為成本快照：order_items.unit_cost 於確認當下寫定（見 patch-018/019），
+-- 上面 product_movement / dashboard_summary 等函式的成本計算也已由 patch-020
+-- 改讀 Σ(出貨明細 unit_cost × 數量)。此檔保留供歷史對照，實際口徑以 patch-020 為準。
 -- ============================================
