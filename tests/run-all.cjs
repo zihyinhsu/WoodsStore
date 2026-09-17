@@ -7,7 +7,8 @@ const SUITES = [
   'orders-edit.test.cjs',
   'forms.test.cjs',
   'dashboard.test.cjs',
-  'products-tabs.test.cjs'
+  'products-tabs.test.cjs',
+  'receivables.test.cjs'
 ];
 
 const run = file => new Promise(resolve => {

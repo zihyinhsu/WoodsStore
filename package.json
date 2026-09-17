@@ -14,6 +14,7 @@
     "test:orders": "node tests/orders-edit.test.cjs",
     "test:forms": "node tests/forms.test.cjs",
     "test:products": "node tests/products-tabs.test.cjs",
+    "test:receivables": "node tests/receivables.test.cjs",
     "postinstall": "playwright install chromium"
   },
   "devDependencies": {

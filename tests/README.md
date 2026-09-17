@@ -67,6 +67,7 @@ TEST_EMAIL=someone@example.com TEST_PASSWORD=... npm test
 | `statement.test.cjs` | 對帳單日期查詢、客戶 tabs、多選列印、全選三態、查無資料的狀態重置 |
 | `orders-edit.test.cjs` | 連點不重複展開明細、草稿可編輯、已確認僅開放備註、作廢不可編輯 |
 | `forms.test.cjs` | 自動編號提示、編號留空可送出、儲存按鈕防連點、動態按鈕文案 |
+| `receivables.test.cjs` | 追款清單排序（未設定收款日殿後）、到期狀態篩選、關鍵字特殊字元、單號與收款連結 |
 
 ## 撰寫新測試
 
