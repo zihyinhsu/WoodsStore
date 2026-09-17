@@ -3,8 +3,7 @@ import {
   fetchCostPage,
   fetchCostTotals,
   fetchCostTrend,
-  fetchCostRanking,
-  fetchPeriodSummary
+  fetchCostRanking
 } from './inventory-cost.js';
 import { showToast, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
@@ -163,14 +162,17 @@ async function loadCharts(from, to) {
 }
 
 async function loadMonthlySummary(range) {
-  // 毛利用 SQL 回傳的未稅值（含折讓），不再 revenue(含稅) − cost：
-  // 收益卡含稅是收付視角，但拿含稅收益去減未稅成本會讓毛利被稅額灌水。
-  const { revenue, expense, cost, profit } = await fetchPeriodSummary(range.from, range.to);
+  // 四張卡與下方明細清單共用 fetchCostTotals，口徑一律未稅、已扣整單折讓。
+  // 不走 fetchPeriodSummary（那支的收益／支出含稅）：上下兩塊算法不同時，
+  // 同一個月份會顯示兩組差一筆稅額的數字，看的人無從判斷哪個才算數。
+  // 這裡的區間固定是本月，與下方查詢列各自獨立——改查詢區間不該動到卡片。
+  const totals = await fetchCostTotals(range.from, range.to);
 
-  document.getElementById('stat-month-revenue').textContent = formatCurrency(revenue);
-  document.getElementById('stat-month-expense').textContent = formatCurrency(expense);
-  document.getElementById('stat-month-cost').textContent = formatCurrency(cost);
-  
+  document.getElementById('stat-month-revenue').textContent = formatCurrency(totals.saleAmount);
+  document.getElementById('stat-month-expense').textContent = formatCurrency(totals.purchaseAmount);
+  document.getElementById('stat-month-cost').textContent = formatCurrency(totals.estimatedCost);
+
+  const profit = totals.estimatedProfit;
   const profitEl = document.getElementById('stat-month-profit');
   profitEl.textContent = formatCurrency(profit);
   profitEl.classList.toggle('text-danger', profit < 0);

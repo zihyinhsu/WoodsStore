@@ -62,7 +62,7 @@ TEST_EMAIL=someone@example.com TEST_PASSWORD=... npm test
 | 檔案 | 涵蓋範圍 |
 |---|---|
 | `sorting.test.cjs` | 商品/往來對象依編號降冪、單據/收款依日期降冪、成本分析依編號升冪、跨頁不重複 |
-| `dashboard.test.cjs` | 總覽本月出貨收益/進貨支出/出貨成本、成本分析預設區間與合計、日期區間驗證 |
+| `dashboard.test.cjs` | 總覽本月出貨收益/進貨成本/出貨成本、成本分析預設區間與合計、日期區間驗證 |
 | `products-tabs.test.cjs` | 商品頁「所有商品／庫存不足」分頁切換、空狀態、數量標記、hash 直達 |
 | `statement.test.cjs` | 對帳單日期查詢、客戶 tabs、多選列印、全選三態、查無資料的狀態重置 |
 | `orders-edit.test.cjs` | 連點不重複展開明細、草稿可編輯、已確認僅開放備註、作廢不可編輯 |

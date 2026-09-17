@@ -125,6 +125,9 @@ export async function fetchProductMovementPage({ productId, from, to, page }) {
   return { rows: data || [], total: count || 0 };
 }
 
+// 含稅（收付視角）的期間損益：revenue／expense 為明細小計 − 整單折讓 + 稅額，
+// cost／profit 則是未稅。總覽四張卡已改吃 fetchCostTotals 的全未稅口徑，這支目前沒有呼叫端，
+// 保留是因為「含稅檢視」是預定要做的功能，屆時切資料源即可，不必再從頭寫一次 RPC。
 export async function fetchPeriodSummary(from, to) {
   const { data, error } = await sb.rpc('dashboard_summary', { p_from: from, p_to: to });
   if (error) throw error;

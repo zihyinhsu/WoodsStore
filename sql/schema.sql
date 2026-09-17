@@ -1077,8 +1077,8 @@ as $$
   group by m.product_id;
 $$;
 
--- 期間損益彙總
--- 收益／支出 = 明細小計 − 整單折讓 + 稅額（含稅，收付視角，供上方兩張卡片）；
+-- 期間損益彙總（含稅檢視用；總覽卡片已改走 product_cost_analysis_summary 的全未稅口徑）
+-- 收益／支出 = 明細小計 − 整單折讓 + 稅額（含稅，收付視角）；
 -- 成本 = Σ 各商品出貨成本快照；
 -- 毛利 = 未稅銷貨淨額（含折讓）− 成本。稅是代收代付、不是收入，故毛利一律未稅，
 --        不可用含稅的 revenue 去減成本（那會讓毛利被稅額灌水）。
@@ -1162,7 +1162,8 @@ as $$
   where m.product_id is not null or not p_with_movement_only;
 $$;
 
--- 逐商品分析的期間合計（金額為明細小計加總，不含整單折讓與稅）
+-- 逐商品分析的期間合計（金額為未稅、已扣分攤的整單折讓，與 product_movement 同口徑）
+-- 總覽上方四張卡片也走這支，讓卡片與下方明細清單的合計必定相等。
 create or replace function product_cost_analysis_summary(
   p_from date,
   p_to date
