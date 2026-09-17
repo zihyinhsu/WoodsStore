@@ -10,6 +10,8 @@ HTML + Vanilla JS + Supabase 的輕量進銷存管理系統，以 Vite 建置，
 - **單據管理**：進貨／銷貨／調整單、草稿流程（存草稿 → 確認生效）、作廢回沖、付款狀態、時間區間＋關鍵字搜尋
 - **收款管理**：客戶應收餘額、收款單沖帳分配、未分配預收追蹤、時間區間＋關鍵字搜尋
 - **對帳單**：依期間產生各客戶應收明細、多選批次列印
+- **追款清單**：出貨單可記「預計收款日」，依到期狀態（已逾期／今天到期／尚未到期／未設定）
+  篩選未收款項，並由排程每天寄出追款提醒信
 - **往來對象**：供應商／客戶管理
 
 ## 技術架構
@@ -53,6 +55,37 @@ npm run preview   # 以 http://localhost:4173 預覽 dist/
 新增 `VITE_SUPABASE_URL` 與 `VITE_SUPABASE_ANON_KEY`。這兩個值在 build 時內嵌進
 產物，因此改動後必須重新部署才會生效。
 
+## 每日追款提醒信（選用）
+
+追款清單頁本身不需要任何額外設定；要讓系統每天主動寄出摘要信才需要下面這段。
+信件由 Supabase Edge Function 產生、Resend 寄出，**部署管道與前端（Vercel）不同**。
+
+```bash
+# 1. 部署 Edge Function
+#    --no-verify-jwt 是必要的：呼叫方是 pg_cron，不帶使用者 JWT，
+#    預設的 JWT 驗證會讓排程一律吃 401。改以自訂的 X-Digest-Token 驗證。
+supabase functions deploy receivables-digest --no-verify-jwt
+
+# 2. 設定 secrets（只存在 Edge Function 環境，不進前端產物）
+supabase secrets set \
+  RESEND_API_KEY=re_xxx \
+  DIGEST_TOKEN=$(openssl rand -hex 32) \
+  DIGEST_FROM='追款提醒 <noreply@你的網域>' \
+  DIGEST_RECIPIENTS='someone@example.com,other@example.com'
+```
+
+3. 複製 `sql/cron-receivables-digest.sql.example`，換掉專案網址與 `DIGEST_TOKEN`
+   後貼到 SQL Editor 執行，即完成排程（預設 UTC 00:00 = 台北早上 08:00）。
+
+前置需求與限制：
+
+- **Resend 需先驗證寄件網域**（DNS 加 SPF/DKIM），否則只能寄給自己的註冊信箱。
+- 免費額度：Edge Function 50 萬次/月、Resend 3,000 封/月，本功能約每月 30 封。
+- **沒有逾期或今日到期項目時不寄信**，避免每天一封空信讓人養成略過的習慣。
+- 排程本身成功不代表信寄出去了，實際結果看 Edge Function 的 log；
+  `cron.job_run_details` 只反映 HTTP 請求有沒有發出去。
+- Supabase 免費專案閒置一週會被暫停，排程會一併停擺。
+
 ## 測試
 
 ```bash
@@ -73,6 +106,7 @@ npm test          # 執行全部 E2E 測試
 ├── partners.html       # 往來對象
 ├── payments.html       # 收款管理
 ├── statement.html      # 對帳單
+├── receivables.html    # 追款清單
 ├── DESIGN.md           # 設計系統（色彩／字級／間距／元件規範）
 ├── css/style.css       # 淡色工業風設計系統
 ├── vite.config.mjs     # MPA 進入點設定（新增頁面要補進 pages 陣列）
@@ -81,9 +115,12 @@ npm test          # 執行全部 E2E 測試
 │   ├── supabase.js     # client 單例
 │   ├── ui.js           # 共用元件（toast/modal/sidebar）
 │   └── *.js            # 各頁邏輯
+├── supabase/functions/
+│   └── receivables-digest/   # 每日追款提醒信（Deno，獨立於 Vercel 部署）
 └── sql/
     ├── migration.sql   # 完整 schema
-    └── patch-*.sql     # 增量補丁
+    ├── patch-*.sql     # 增量補丁
+    └── cron-*.sql.example    # 排程設定範本（含權杖，填好的版本不進版控）
 ```
 
 ## 注意事項
