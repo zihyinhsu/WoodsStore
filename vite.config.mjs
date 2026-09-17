@@ -6,7 +6,7 @@ const projectRoot = dirname(fileURLToPath(import.meta.url));
 
 // 這是多頁式應用（MPA）：每支 HTML 都是獨立進入點，
 // 不列進 input 的頁面不會被打包，直接 404。新增頁面時記得補這裡。
-const pages = ['index', 'login', 'products', 'orders', 'partners', 'payments', 'statement'];
+const pages = ['index', 'login', 'products', 'orders', 'partners', 'payments', 'statement', 'receivables'];
 
 export default defineConfig({
   // 相對路徑：產物可放在網域根目錄或子路徑，不必重新 build。
