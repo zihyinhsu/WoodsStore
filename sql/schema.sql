@@ -299,6 +299,8 @@ from outstanding_order_view;
 -- 單據搜尋（時間區間 + 關鍵字）
 -- payment_status 讀推導值；total_amount 為淨額（小計 − 折讓 + 稅），
 -- 與付款狀態、partner_balance_view、dashboard_summary 同口徑。
+-- top_item_name：列表用的代表品項，取金額最大的那一項——order_items 沒有 line_no
+-- 也沒有 created_at，「第一筆」沒有穩定順序（見 patch-024 口徑）。
 -- ----------------------------------------
 create view order_search_view as
 select
@@ -320,7 +322,8 @@ select
   o.order_no || ' ' || coalesce(o.note,'')
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(pr.name || ' ' || pr.sku, ' '), '')
-    as search_text
+    as search_text,
+  (array_agg(pr.name order by oi.subtotal desc nulls last))[1] as top_item_name
 from orders o
 left join partners p     on p.id = o.partner_id
 left join order_items oi on oi.order_id = o.id
