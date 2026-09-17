@@ -100,30 +100,32 @@ export function toErrorMessage(error) {
   if (raw.includes('PAYMENT_STATUS_READONLY')) {
     return '付款狀態由收款紀錄自動推導，請至收款管理新增或修改收款。';
   }
+  // 收款金額改由勾選的出貨單加總而來，這幾種狀況在正常操作下不會發生，
+  // 只會在畫面開著、資料同時被別處改動時出現，因此一律引導重新整理。
   if (raw.includes('ALLOCATION_EXCEEDS_PAYMENT')) {
-    return '分配總額超過收款金額，請調整各單據的沖帳金額。';
+    return '收款金額與所選出貨單的總額不符，請重新整理後再試。';
   }
   if (raw.includes('ALLOCATION_EXCEEDS_ORDER')) {
-    return '沖帳金額超過該單據的應收金額，請確認是否已有其他收款沖過同一張單。';
+    return '所選出貨單的應收金額已變動，可能已有其他收款收過，請重新整理後再試。';
   }
   if (raw.includes('ALLOCATION_PARTNER_MISMATCH')) {
-    return '收款客戶與單據客戶不一致，無法沖帳。';
+    return '所選出貨單不屬於這位客戶，請重新整理後再試。';
   }
   if (raw.includes('ALLOCATION_TARGET_INVALID')) {
-    return '只能沖帳已確認的出貨單。';
+    return '只能選擇已確認的出貨單。';
   }
   if (raw.includes('ORDER_HAS_ALLOCATIONS')) {
-    return '此單據已有收款沖帳，請先至收款管理移除相關分配後再作廢。';
+    return '此單據已有收款紀錄，請先至收款管理刪除對應的收款後再作廢。';
   }
   if (raw.includes('ORDER_TOTAL_BELOW_ALLOCATED')) {
-    return '單據金額低於已收款金額，請先調整收款分配。';
+    return '單據金額低於已收金額，請先至收款管理刪除對應的收款。';
   }
   if (raw.includes('PAYMENT_PARTNER_INVALID')) return '收款對象必須是客戶。';
   if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇收款客戶。';
   if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收款金額必須大於 0。';
   if (raw.includes('PAYMENT_METHOD_INVALID')) return '收款方式不正確。';
   if (raw.includes('PAYMENT_NOT_FOUND')) return '找不到此收款紀錄，可能已被刪除。';
-  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '沖帳金額必須大於 0。';
+  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '出貨單的收款金額必須大於 0。';
 
   if (/duplicate key value/i.test(raw)) {
     const matched = Object.keys(UNIQUE_FIELD_LABELS).find(key => raw.includes(key));

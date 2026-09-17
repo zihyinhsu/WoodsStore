@@ -225,7 +225,7 @@
         </div>
         <div class="form-group search-keyword-group">
           <label>關鍵字搜尋</label>
-          <input type="text" id="search-keyword" class="form-control" placeholder="收款單號、客戶、沖帳單號、備註...">
+          <input type="text" id="search-keyword" class="form-control" placeholder="收款單號、客戶、出貨單號、備註...">
         </div>
         <button class="btn btn-outline" id="btn-reset-search">清除條件</button>
       </div>
@@ -242,14 +242,13 @@
               <th>收款單號</th>
               <th>客戶</th>
               <th>金額</th>
-              <th>已沖帳</th>
               <th>方式</th>
               <th>備註</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="8" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="7" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -286,12 +285,11 @@
               <th>名稱</th>
               <th>出貨總額</th>
               <th>已收款</th>
-              <th>未分配預收</th>
               <th>應收餘額</th>
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="6" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="5" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -325,27 +323,22 @@
             <input type="date" id="payment-date" class="form-control" required>
           </div>
           <div class="form-group">
-            <label>收款金額</label>
-            <input type="number" id="payment-amount" class="form-control" min="0.01" step="0.01" required>
-            <div class="mt-2" style="font-size: 0.85rem; color: var(--text-muted);">
-              先填實收金額，再於下方分配到各張出貨單。
-            </div>
-          </div>
-          <div class="form-group">
-            <label>沖帳出貨單</label>
+            <label>收款出貨單</label>
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
-              勾選要核銷的出貨單，金額預設帶入未收餘額，可自行調整為部分沖帳。
+              勾選這次收款結清的出貨單，收款金額自動加總。
             </div>
-            <div id="payment-orders-list" style="max-height: 240px; overflow-y: auto; border: 2px solid var(--border-color); padding: 0.5rem; margin-bottom: 0.5rem;">
+            <!-- 明細預設展開，每列高度是原本的數倍，240px 只看得到一張單 -->
+            <div id="payment-orders-list" style="max-height: 360px; overflow-y: auto; border: 2px solid var(--border-color); padding: 0.5rem; margin-bottom: 0.5rem;">
               <div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>
             </div>
-            <div class="d-flex justify-between" style="font-size: 0.9rem;">
-              <button type="button" id="btn-auto-allocate" class="btn btn-outline" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">自動分配</button>
-              <div style="text-align: right;">
-                <div>已分配：<strong id="allocated-total" style="font-family: 'Roboto', sans-serif;">$0</strong></div>
-                <div id="unallocated-hint" class="text-muted" style="font-size: 0.85rem;"></div>
-              </div>
+            <!-- 金額是勾選結果的推導值，不給使用者輸入：一旦金額與分配是兩個各自
+                 獨立的數字，就會產生「湊平」的負擔與湊不平的各種錯誤狀態。 -->
+            <input type="hidden" id="payment-amount">
+            <div style="text-align: right; font-size: 0.9rem;">
+              收款金額
+              <strong id="payment-amount-display" style="font-family: 'Roboto', sans-serif; font-size: 1.1rem;">$0</strong>
             </div>
+            <div id="payment-legacy-hint" class="text-warning" style="font-size: 0.85rem; margin-top: 0.5rem; display: none;"></div>
           </div>
           <div class="form-group">
             <label>收款方式</label>

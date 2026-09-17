@@ -13,16 +13,17 @@ let orderFilterId = null;
 let orderFilterNo = null;
 let orderFilterPartnerId = null;
 let autoExpanded = false;
+// 非 null 代表正在編輯一筆舊版沖帳留下的收款，整個出貨單區塊唯讀（見 setLegacyLock）。
+let legacyPayment = null;
 
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
 const paymentPartner = document.getElementById('payment-partner');
 const paymentOrdersList = document.getElementById('payment-orders-list');
 const paymentAmount = document.getElementById('payment-amount');
-const allocatedTotal = document.getElementById('allocated-total');
-const unallocatedHint = document.getElementById('unallocated-hint');
+const paymentAmountDisplay = document.getElementById('payment-amount-display');
+const paymentLegacyHint = document.getElementById('payment-legacy-hint');
 const partnerBalanceHint = document.getElementById('partner-balance-hint');
-const btnAutoAllocate = document.getElementById('btn-auto-allocate');
 const orderFilterNotice = document.getElementById('order-filter-notice');
 
 const balanceAsOfHint = document.getElementById('balance-asof-hint');
@@ -151,22 +152,20 @@ function renderBalancesTable(rows) {
       : toggleSettled.checked
         ? '無客戶資料'
         : '所有客戶均已結清，可勾選「顯示已結清客戶」檢視全部。';
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-state">${message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${message}</td></tr>`;
     return;
   }
 
+  // 不另列「未分配預收」：收款金額即所選單據的加總，新制不會再產生預收，
+  // 舊資料殘留的部分也已算進已收款與應收餘額裡（溢付會讓餘額成為負數）。
   tbody.innerHTML = rows.map(b => {
     const balance = Number(b.balance);
-    const credit = Number(b.unallocated_credit);
     return `
       <tr>
         <td>${escapeHtml(b.partner_no || '-')}</td>
         <td>${escapeHtml(b.name)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_sales)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_paid)}</td>
-        <td style="font-family: 'Roboto', sans-serif;" class="${credit > 0 ? 'text-warning' : 'text-muted'}">
-          ${formatCurrency(b.unallocated_credit)}
-        </td>
         <td class="balance-amount ${balance > 0 ? 'positive' : balance < 0 ? 'negative' : ''}" style="font-family: 'Roboto', sans-serif;">
           ${formatCurrency(b.balance)}
         </td>
@@ -283,10 +282,12 @@ async function loadPayments() {
 function renderPaymentsTable() {
   const tbody = document.querySelector('#payments-table tbody');
   if (currentPayments.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">找不到收款紀錄</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">找不到收款紀錄</td></tr>';
     return;
   }
 
+  // 沒有獨立的「已沖帳」欄：新制的收款金額就是勾選單據的加總，兩者恆等。
+  // 只有舊版手動沖帳留下的收款才可能有差額，那時才把未分配的部分標出來。
   tbody.innerHTML = currentPayments.map(p => {
     const unallocated = Number(p.unallocated_amount) || 0;
     return `
@@ -294,9 +295,8 @@ function renderPaymentsTable() {
       <td>${formatDate(p.payment_date)}</td>
       <td>${escapeHtml(p.payment_no)}</td>
       <td>${escapeHtml(p.partner_name || '-')}</td>
-      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(p.amount)}</td>
       <td style="font-family: 'Roboto', sans-serif;">
-        ${formatCurrency(p.allocated_amount)}
+        ${formatCurrency(p.amount)}
         ${unallocated > 0 ? `<span class="text-warning" style="font-size: 0.8rem; display: block;">未分配 ${formatCurrency(unallocated)}</span>` : ''}
       </td>
       <td>${methodMap[p.method] || escapeHtml(p.method)}</td>
@@ -408,7 +408,7 @@ async function expandPaymentDetail(paymentId, rowElement) {
     const rows = data || [];
 
     const body = rows.length === 0
-      ? '<tr><td colspan="4" class="empty-state">此筆收款尚未沖帳，全額列為預收。</td></tr>'
+      ? '<tr><td colspan="4" class="empty-state">此筆收款未對應任何出貨單，全額列為預收。</td></tr>'
       : rows.map(a => `
           <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
             <td>${formatDate(a.order_date)}</td>
@@ -419,15 +419,15 @@ async function expandPaymentDetail(paymentId, rowElement) {
 
     rowElement.insertAdjacentHTML('afterend', `
       <tr class="detail-row">
-        <td colspan="8" style="padding: 1rem 2rem;">
-          <h4 style="margin: 0 0 0.5rem;">沖帳明細</h4>
+        <td colspan="7" style="padding: 1rem 2rem;">
+          <h4 style="margin: 0 0 0.5rem;">本次收款的出貨單</h4>
           <table class="detail-table">
             <thead>
               <tr>
                 <th>出貨日期</th>
                 <th>出貨單號</th>
                 <th>單據金額</th>
-                <th>本次沖帳</th>
+                <th>本次收款</th>
               </tr>
             </thead>
             <tbody>${body}</tbody>
@@ -439,12 +439,12 @@ async function expandPaymentDetail(paymentId, rowElement) {
     console.error('Error loading allocations:', error);
     if (rowElement.__detailToken !== token) return;
     rowElement.classList.remove('detail-open');
-    showToast('載入沖帳明細失敗：' + toErrorMessage(error), 'error');
+    showToast('載入收款明細失敗：' + toErrorMessage(error), 'error');
   }
 }
 
 // 這裡必須單筆查詢，不能沿用餘額表的資料：餘額表已改為分頁 + 可篩選，
-// 選到不在當頁的客戶會查不到，提示會無聲消失——而那正是決定沖帳金額的依據。
+// 選到不在當頁的客戶會查不到，提示會無聲消失——而那正是使用者判斷該收哪幾張單的依據。
 async function renderPartnerBalanceHint(partnerId) {
   if (!partnerId) {
     partnerBalanceHint.style.display = 'none';
@@ -470,19 +470,133 @@ async function renderPartnerBalanceHint(partnerId) {
     return;
   }
 
-  const credit = Number(balance.unallocated_credit) || 0;
   partnerBalanceHint.style.display = '';
   partnerBalanceHint.innerHTML = `
     <span class="text-muted">目前應收餘額：</span>
     <strong class="${Number(balance.balance) > 0 ? 'text-danger' : 'text-success'}"
-            style="font-family: 'Roboto', sans-serif;">${formatCurrency(balance.balance)}</strong>
-    ${credit > 0 ? `<span class="text-warning" style="margin-left: 0.5rem;">未分配預收 ${formatCurrency(credit)}</span>` : ''}`;
+            style="font-family: 'Roboto', sans-serif;">${formatCurrency(balance.balance)}</strong>`;
 }
 
-async function loadAllocatableOrders(partnerId, paymentId = null) {
+// 新制一律「勾選即全額」：每一列的分配金額必等於該單當時的未收全額，
+// 收款金額必等於分配總額。只要有一項不成立，就是舊版手動沖帳留下的資料——
+// 用新規則重存會靜默改掉金額（部分沖帳被撐成全額、未分配預收被吃掉），
+// 因此整區鎖為唯讀，要更正只能刪除重開，與「單據不可編輯」的處理方式一致。
+function isLegacyAllocation(rows, payment) {
+  if (!payment) return false;
+  if (round2(Number(payment.unallocated_amount) || 0) > 0) return true;
+  return rows.some(r => r.allocated > 0 && r.allocated < r.allocatable);
+}
+
+function setLegacyLock(payment) {
+  legacyPayment = payment;
+  // 客戶一併鎖住：換客戶會重載清單、讓區塊變回可編輯，等於繞過鎖定改掉金額。
+  paymentPartner.disabled = Boolean(payment);
+
+  if (!payment) {
+    paymentLegacyHint.style.display = 'none';
+    paymentLegacyHint.textContent = '';
+    return;
+  }
+
+  const unallocated = round2(Number(payment.unallocated_amount) || 0);
+  const reason = unallocated > 0 ? `含未分配預收 ${formatCurrency(unallocated)}` : '含部分沖帳';
+  paymentLegacyHint.style.display = '';
+  paymentLegacyHint.textContent =
+    `此筆收款以舊版沖帳方式建立（${reason}），出貨單與金額不可調整。如需更正請刪除後重新開立。`;
+}
+
+// data-amount 是「這列被勾選時要送出的分配金額」：新制恆為該單未收全額，
+// 舊制則是原本就存在的分配金額，唯讀且原樣送回。
+function renderAllocationRow(r, legacy, items) {
+  const amount = legacy ? r.allocated : r.allocatable;
+  // 金額與單據總額不同時（別筆收款沖過一部分、或舊制部分沖帳），補上原始單據金額，
+  // 否則使用者會以為系統把單據金額算錯了。
+  const showTotal = round2(amount) !== round2(r.order_total);
+
+  return `
+    <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-amount="${escapeHtml(amount)}"
+         style="padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <label class="checkbox">
+          <input type="checkbox" class="order-checkbox"
+                 ${legacy || r.allocated > 0 ? 'checked' : ''} ${legacy ? 'disabled' : ''}>
+          <span class="checkbox-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+          </span>
+        </label>
+        <span style="flex: 1;">
+          ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
+          ${showTotal ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">單據 ${formatCurrency(r.order_total)}</span>` : ''}
+        </span>
+        <strong style="font-family: 'Roboto', sans-serif;">${formatCurrency(amount)}</strong>
+      </div>
+      <div class="allocation-items">${renderOrderItems(items)}</div>
+    </div>
+  `;
+}
+
+// 明細必須維持純展示：updatePaymentAmount 與 collectAllocations 是全域掃
+// .allocation-row 再往下找第一個 .order-checkbox，這個容器裡若出現同樣的結構，
+// 會被一併算進收款金額，且不會報錯，只會靜默算錯。
+function renderOrderItems(items) {
+  if (items === null) {
+    return '<div style="padding: 0.25rem 0 0; font-size: 0.8rem; color: var(--danger);">明細載入失敗</div>';
+  }
+  if (items.length === 0) {
+    return '<div class="text-muted" style="padding: 0.25rem 0 0; font-size: 0.8rem;">此單據沒有明細。</div>';
+  }
+
+  return `
+    <table class="detail-table">
+      <thead>
+        <tr>
+          <th>商品</th>
+          <th>數量</th>
+          <th>單價</th>
+          <th>小計</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.products?.name ?? '')} <span class="text-muted">(${escapeHtml(item.products?.sku ?? '')})</span></td>
+            <td>${Math.abs(item.qty)} ${escapeHtml(item.products?.unit ?? '')}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.unit_price)}</td>
+            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.subtotal)}</td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// 明細預設全部展開，所以一次撈完：每列各發一次查詢，清單一開就是十幾個 round-trip。
+// 撈不到不讓整張清單陣亡——該列顯示「明細載入失敗」，勾選與金額照常運作。
+async function loadOrderItems(orderIds) {
+  if (orderIds.length === 0) return new Map();
+
+  try {
+    const { data, error } = await sb
+      .from('order_items')
+      .select('*, products(name, sku, unit)')
+      .in('order_id', orderIds);
+
+    if (error) throw error;
+
+    const grouped = new Map(orderIds.map(id => [id, []]));
+    (data || []).forEach(item => grouped.get(item.order_id)?.push(item));
+    return grouped;
+  } catch (error) {
+    console.error('Error loading order items:', error);
+    showToast('載入單據明細失敗：' + toErrorMessage(error), 'error');
+    // 空 Map：renderOrderItems 收到 null 會顯示失敗提示，不會誤標成「沒有明細」。
+    return new Map();
+  }
+}
+
+async function loadAllocatableOrders(partnerId, payment = null) {
   if (!partnerId) {
     paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>';
-    updateAllocatedTotal();
+    setLegacyLock(null);
+    updatePaymentAmount();
     return;
   }
 
@@ -491,8 +605,8 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
   try {
     const [outstandingRes, existingRes] = await Promise.all([
       sb.from('outstanding_order_view').select('*').eq('partner_id', partnerId).order('order_date'),
-      paymentId
-        ? sb.from('payment_allocation_view').select('*').eq('payment_id', paymentId).order('order_date')
+      payment
+        ? sb.from('payment_allocation_view').select('*').eq('payment_id', payment.id).order('order_date')
         : Promise.resolve({ data: [], error: null })
     ]);
 
@@ -503,8 +617,8 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
     const existingById = new Map(existing.map(e => [e.order_id, e]));
 
     // 編輯時，這筆收款自己已分配的金額會讓單據看起來未收較少，
-    // 必須加回去才是「這筆收款可以動用的上限」，否則改金額時會被自己卡住。
-    const rows = (outstandingRes.data || []).map(o => {
+    // 必須加回去才是「這筆收款可以動用的上限」，也才是勾選時要帶入的金額。
+    let rows = (outstandingRes.data || []).map(o => {
       const mine = Number(existingById.get(o.id)?.allocated_amount) || 0;
       return {
         id: o.id,
@@ -528,43 +642,27 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
       });
     });
 
+    const legacy = isLegacyAllocation(rows, payment) ? payment : null;
+    setLegacyLock(legacy);
+
+    // 舊制唯讀時只列出這筆收款實際沖過的單：其餘未收單既然不能勾，列出來只是雜訊。
+    if (legacy) rows = rows.filter(r => r.allocated > 0);
+
     if (rows.length === 0) {
       paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">此客戶目前沒有未收款的出貨單</div>';
-      updateAllocatedTotal();
+      updatePaymentAmount();
       return;
     }
 
     rows.sort((a, b) => (a.order_date < b.order_date ? -1 : a.order_date > b.order_date ? 1 : 0));
 
-    paymentOrdersList.innerHTML = rows.map(r => `
-      <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-allocatable="${escapeHtml(r.allocatable)}"
-           style="padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <label class="checkbox">
-            <input type="checkbox" class="order-checkbox" ${r.allocated > 0 ? 'checked' : ''}>
-            <span class="checkbox-box">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            </span>
-          </label>
-          <span style="flex: 1;">
-            ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
-            <span class="text-muted" style="font-size: 0.8rem; display: block;">
-              單據 ${formatCurrency(r.order_total)}／可沖 ${formatCurrency(r.allocatable)}
-            </span>
-          </span>
-          <input type="number" class="form-control allocation-amount" min="0" step="0.01"
-                 max="${r.allocatable}" value="${r.allocated > 0 ? r.allocated : ''}"
-                 ${r.allocated > 0 ? '' : 'disabled'}
-                 style="width: 120px; font-family: 'Roboto', sans-serif; text-align: right;">
-          <button type="button" class="btn btn-outline btn-toggle-items" aria-expanded="false"
-                  style="padding: 0.25rem 0.5rem; font-size: 0.8rem; white-space: nowrap;">明細</button>
-        </div>
-        <div class="allocation-items" hidden></div>
-      </div>
-    `).join('');
+    const itemsByOrder = await loadOrderItems(rows.map(r => r.id));
+    paymentOrdersList.innerHTML = rows
+      .map(r => renderAllocationRow(r, Boolean(legacy), itemsByOrder.get(r.id) ?? null))
+      .join('');
 
     bindAllocationEvents();
-    updateAllocatedTotal();
+    updatePaymentAmount();
   } catch (error) {
     console.error('Error loading orders:', error);
     paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0; color: var(--danger);">載入失敗</div>';
@@ -572,176 +670,41 @@ async function loadAllocatableOrders(partnerId, paymentId = null) {
   }
 }
 
-// 明細必須維持純展示：這個容器裡若出現任何 input，collectAllocations 與
-// updateAllocatedTotal 會把它一併算進沖帳金額，且不會報錯，只會靜默算錯。
-async function toggleAllocationDetail(row) {
-  const container = row.querySelector('.allocation-items');
-  const button = row.querySelector('.btn-toggle-items');
-
-  if (!container.hidden) {
-    container.hidden = true;
-    button.setAttribute('aria-expanded', 'false');
-    return;
-  }
-
-  container.hidden = false;
-  button.setAttribute('aria-expanded', 'true');
-
-  if (container.dataset.loaded === 'true') return;
-
-  // 連點時第二次請求會在第一次回來前發出，用 token 確保只有最後一次的結果會被寫入。
-  const token = Symbol('allocation-detail');
-  row.__itemsToken = token;
-  container.innerHTML = '<div class="text-muted" style="padding: 0.5rem 0; font-size: 0.85rem;">載入中...</div>';
-
-  try {
-    const { data, error } = await sb
-      .from('order_items')
-      .select('*, products(name, sku, unit)')
-      .eq('order_id', row.getAttribute('data-id'));
-
-    if (error) throw error;
-    if (row.__itemsToken !== token) return;
-
-    const items = data || [];
-    container.dataset.loaded = 'true';
-    container.innerHTML = items.length === 0
-      ? '<div class="text-muted" style="padding: 0.5rem 0; font-size: 0.85rem;">此單據沒有明細。</div>'
-      : `
-        <table class="detail-table">
-          <thead>
-            <tr>
-              <th>商品</th>
-              <th>數量</th>
-              <th>單價</th>
-              <th>小計</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items.map(item => `
-              <tr>
-                <td>${escapeHtml(item.products?.name ?? '')} <span class="text-muted">(${escapeHtml(item.products?.sku ?? '')})</span></td>
-                <td>${Math.abs(item.qty)} ${escapeHtml(item.products?.unit ?? '')}</td>
-                <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.unit_price)}</td>
-                <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.subtotal)}</td>
-              </tr>`).join('')}
-          </tbody>
-        </table>`;
-  } catch (error) {
-    console.error('Error loading order items:', error);
-    if (row.__itemsToken !== token) return;
-    // 不設 loaded，讓使用者收合後再展開可重試。
-    container.innerHTML = '<div style="padding: 0.5rem 0; font-size: 0.85rem; color: var(--danger);">載入明細失敗</div>';
-    showToast('載入單據明細失敗：' + toErrorMessage(error), 'error');
-  }
-}
-
 function bindAllocationEvents() {
   document.querySelectorAll('.allocation-row').forEach(row => {
     const checkbox = row.querySelector('.order-checkbox');
-    const input = row.querySelector('.allocation-amount');
-    const allocatable = Number(row.getAttribute('data-allocatable'));
-
-    row.querySelector('.btn-toggle-items').addEventListener('click', () => toggleAllocationDetail(row));
-
-    checkbox.addEventListener('change', () => {
-      input.disabled = !checkbox.checked;
-      if (checkbox.checked) {
-        input.value = remainingAllocatable(allocatable);
-      } else {
-        input.value = '';
-      }
-      updateAllocatedTotal();
-    });
-
-    input.addEventListener('input', () => {
-      const value = Number(input.value);
-      if (value > allocatable) input.value = allocatable;
-      updateAllocatedTotal();
-    });
+    if (checkbox.disabled) return;
+    checkbox.addEventListener('change', updatePaymentAmount);
   });
 }
 
-// 勾選時預設帶入「這張單還能沖多少」與「這筆收款還剩多少沒分配」的較小值，
-// 讓整張結清成為單純打勾即可完成的預設路徑。
-function remainingAllocatable(allocatable) {
-  const total = Number(paymentAmount.value) || 0;
-  if (total <= 0) return allocatable;
+// 收款金額是勾選結果的推導值，不由使用者輸入。
+// 舊制唯讀時維持原本存下的金額：那筆金額可能大於分配總額（未分配預收），
+// 用加總覆寫會讓差額憑空消失。
+function updatePaymentAmount() {
+  let total;
 
-  let used = 0;
-  document.querySelectorAll('.allocation-row').forEach(row => {
-    const input = row.querySelector('.allocation-amount');
-    if (!input.disabled) used += Number(input.value) || 0;
-  });
-
-  return round2(Math.max(Math.min(allocatable, total - used), 0));
-}
-
-function updateAllocatedTotal() {
-  let total = 0;
-  document.querySelectorAll('.allocation-row').forEach(row => {
-    const input = row.querySelector('.allocation-amount');
-    if (!input.disabled) total += Number(input.value) || 0;
-  });
-
-  total = round2(total);
-  allocatedTotal.textContent = formatCurrency(total);
-  allocatedTotal.setAttribute('data-value', total);
-
-  const paid = Number(paymentAmount.value) || 0;
-  const diff = round2(paid - total);
-
-  if (paid <= 0) {
-    unallocatedHint.textContent = '';
-    unallocatedHint.className = 'text-muted';
-  } else if (diff > 0) {
-    unallocatedHint.textContent = `未分配 ${formatCurrency(diff)}（列為預收）`;
-    unallocatedHint.className = 'text-warning';
-  } else if (diff < 0) {
-    unallocatedHint.textContent = `超出收款金額 ${formatCurrency(-diff)}`;
-    unallocatedHint.className = 'text-danger';
+  if (legacyPayment) {
+    total = round2(Number(legacyPayment.amount) || 0);
   } else {
-    unallocatedHint.textContent = '已全數分配';
-    unallocatedHint.className = 'text-success';
-  }
-}
-
-function autoAllocate() {
-  const total = Number(paymentAmount.value) || 0;
-  if (total <= 0) {
-    showToast('請先填寫收款金額', 'error');
-    return;
+    total = 0;
+    document.querySelectorAll('.allocation-row').forEach(row => {
+      if (!row.querySelector('.order-checkbox').checked) return;
+      total += Number(row.getAttribute('data-amount')) || 0;
+    });
+    total = round2(total);
   }
 
-  let remaining = total;
-  document.querySelectorAll('.allocation-row').forEach(row => {
-    const checkbox = row.querySelector('.order-checkbox');
-    const input = row.querySelector('.allocation-amount');
-    const allocatable = Number(row.getAttribute('data-allocatable'));
-
-    const give = round2(Math.min(allocatable, remaining));
-    if (give > 0) {
-      checkbox.checked = true;
-      input.disabled = false;
-      input.value = give;
-      remaining = round2(remaining - give);
-    } else {
-      checkbox.checked = false;
-      input.disabled = true;
-      input.value = '';
-    }
-  });
-
-  updateAllocatedTotal();
+  paymentAmount.value = total;
+  paymentAmountDisplay.textContent = formatCurrency(total);
 }
 
 function collectAllocations() {
   const allocations = [];
   document.querySelectorAll('.allocation-row').forEach(row => {
-    const input = row.querySelector('.allocation-amount');
-    if (input.disabled) return;
+    if (!row.querySelector('.order-checkbox').checked) return;
 
-    const amount = round2(Number(input.value));
+    const amount = round2(Number(row.getAttribute('data-amount')));
     if (amount > 0) {
       allocations.push({ order_id: row.getAttribute('data-id'), amount });
     }
@@ -755,18 +718,19 @@ function openPaymentModal(payment = null) {
   document.getElementById('payment-date').value = toDateInputValue(new Date());
   paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>';
   partnerBalanceHint.style.display = 'none';
-  updateAllocatedTotal();
+  // 先解鎖：上一次開的可能是舊制收款，殘留的鎖會讓客戶下拉一直停在 disabled。
+  setLegacyLock(null);
+  updatePaymentAmount();
 
   if (payment) {
     document.getElementById('payment-modal-title').textContent = '編輯收款';
     document.getElementById('payment-id').value = payment.id;
     paymentPartner.value = payment.partner_id;
     document.getElementById('payment-date').value = payment.payment_date;
-    paymentAmount.value = payment.amount;
     document.getElementById('payment-method').value = payment.method;
     document.getElementById('payment-note').value = payment.note || '';
     renderPartnerBalanceHint(payment.partner_id);
-    loadAllocatableOrders(payment.partner_id, payment.id);
+    loadAllocatableOrders(payment.partner_id, payment);
   } else {
     document.getElementById('payment-modal-title').textContent = '新增收款';
     document.getElementById('payment-id').value = '';
@@ -795,15 +759,13 @@ async function savePayment() {
     return;
   }
 
-  const amount = round2(Number(paymentAmount.value));
   const allocations = collectAllocations();
-  const allocatedSum = round2(allocations.reduce((sum, a) => sum + a.amount, 0));
-
-  if (allocatedSum > amount) {
-    showToast(`分配總額 ${formatCurrency(allocatedSum)} 超過收款金額 ${formatCurrency(amount)}`, 'error');
+  if (allocations.length === 0) {
+    showToast('請勾選這次收款結清的出貨單', 'error');
     return;
   }
 
+  const amount = round2(Number(paymentAmount.value));
   const id = document.getElementById('payment-id').value;
 
   try {
@@ -1041,13 +1003,15 @@ function setupEventListeners() {
   paymentPartner.addEventListener('change', (e) => {
     const partnerId = e.target.value;
     const paymentId = document.getElementById('payment-id').value;
+    const editing = paymentId ? currentPayments.find(p => p.id === paymentId) : null;
+
+    // 換成別的客戶時不帶既有分配：那些單屬於原客戶，留著會被算進收款金額，
+    // 儲存時才被 ALLOCATION_PARTNER_MISMATCH 擋下，金額卻早已顯示錯了。
+    const payment = editing && editing.partner_id === partnerId ? editing : null;
+
     renderPartnerBalanceHint(partnerId);
-    loadAllocatableOrders(partnerId, paymentId || null);
+    loadAllocatableOrders(partnerId, payment);
   });
-
-  paymentAmount.addEventListener('input', updateAllocatedTotal);
-
-  btnAutoAllocate.addEventListener('click', autoAllocate);
 }
 
 requireAuth(init);
