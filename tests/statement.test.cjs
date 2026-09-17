@@ -30,8 +30,11 @@ const visibleSections = page => page.locator('.statement-section')
   r.check('預設只顯示一位客戶', await visibleSections(page), 1);
 
   // 取消勾選不應影響預覽
+  // 勾選一律點 label：這些 checkbox 外觀改用全站共用的 .checkbox 後，原生 input 被
+  // 設成 opacity:0/寬高 0（css/style.css 的 .checkbox input），Playwright 視為不可見，
+  // 直接對 input 下 uncheck()/click() 會等到逾時。點 label 也更接近真人操作。
   const activeBefore = await page.locator('.statement-section.is-active').getAttribute('data-partner-id');
-  await page.locator('.tab-check').first().uncheck();
+  await page.locator('.statement-tab .checkbox').first().click();
   await page.waitForTimeout(300);
   const activeAfter = await page.locator('.statement-section.is-active').getAttribute('data-partner-id');
   r.check('取消勾選不改變預覽', activeAfter, activeBefore);
@@ -68,10 +71,10 @@ const visibleSections = page => page.locator('.statement-section')
   await page.emulateMedia({ media: 'screen' });
 
   // 全選框：半選 -> 全選 -> 全不選 -> 全選
-  await page.locator('#select-all').click();
+  await page.locator('.select-all-label').click();
   await page.waitForTimeout(300);
   r.check('半選點擊後全選', await page.locator('.tab-check:checked').count(), tabs);
-  await page.locator('#select-all').click();
+  await page.locator('.select-all-label').click();
   await page.waitForTimeout(300);
   r.check('再點取消全選', await page.locator('.tab-check:checked').count(), 0);
   r.truthy('無勾選時停用列印', await page.isDisabled('#btn-print-selected'));
