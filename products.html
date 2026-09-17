@@ -172,9 +172,12 @@
     </div>
 
     <div class="glass-card mb-4">
-      <div class="d-flex gap-3" style="display: flex; gap: 1rem; align-items: center;">
-        <div class="form-group mb-0" style="flex: 1;">
+      <div class="d-flex gap-3" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+        <div class="form-group mb-0" style="flex: 1; min-width: 200px;">
           <input type="text" id="search-input" class="form-control" placeholder="搜尋商品名稱、編號或分類...">
+        </div>
+        <div class="form-group mb-0" style="flex: 0 1 160px;">
+          <input type="text" id="location-input" class="form-control" placeholder="儲位...">
         </div>
         <div class="form-group mb-0">
           <select id="status-filter" class="form-control" style="width: auto;">
@@ -195,6 +198,7 @@
               <th>商品名稱</th>
               <th>分類</th>
               <th>庫存量</th>
+              <th>儲位</th>
               <th>進價</th>
               <th>售價</th>
               <th>狀態</th>
@@ -202,7 +206,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="8" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="9" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>

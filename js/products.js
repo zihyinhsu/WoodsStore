@@ -35,6 +35,13 @@ function applyProductFilters(query, keyword) {
     query = query.or(`name.ilike.%${keyword}%,sku.ilike.%${keyword}%,category.ilike.%${keyword}%`);
   }
 
+  // 儲位與關鍵字是 AND：儲位命名有層級（A-01、A-02），打「A」要能收斂到整排貨架，
+  // 因此用模糊比對而非完全相等。
+  const location = document.getElementById('location-input').value.trim();
+  if (location) {
+    query = query.ilike('location', `%${location}%`);
+  }
+
   return query;
 }
 
@@ -90,7 +97,7 @@ function renderProductsTable(products) {
     const message = currentView === 'low-stock'
       ? '目前無庫存不足的商品'
       : '找不到商品';
-    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">${message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">${message}</td></tr>`;
     return;
   }
 
@@ -107,6 +114,7 @@ function renderProductsTable(products) {
           ${p.stock_qty} ${escapeHtml(p.unit)}
         </span>
       </td>
+      <td>${escapeHtml(p.location || '-')}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(p.cost)}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(p.price)}</td>
       <td>
@@ -582,6 +590,11 @@ requireAuth(() => {
   searchInput.addEventListener('input', debounce((e) => {
     currentPage = 1;
     loadProducts(e.target.value);
+  }, 300));
+
+  document.getElementById('location-input').addEventListener('input', debounce(() => {
+    currentPage = 1;
+    loadProducts(searchInput.value);
   }, 300));
 
   document.getElementById('status-filter').addEventListener('change', () => {
