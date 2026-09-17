@@ -101,8 +101,12 @@ create table orders (
   payment_status  text default 'unpaid'
                   check (payment_status in ('unpaid','partial','paid')),
   note            text,
+  expected_payment_date date,                      -- 預計收款日（月結／票期的約定回款日）
   created_at      timestamptz default now()
 );
+
+comment on column orders.expected_payment_date is
+  '預計收款日（月結／票期的約定回款日）。只對出貨單有意義；追款清單與每日提醒信以此排序與分類。';
 
 -- ----------------------------------------
 -- 單據明細（＝庫存異動流水帳）
@@ -193,6 +197,11 @@ create index idx_order_items_product_order
 -- 客戶餘額 as-of 查詢：payments 依日期截止再依 partner 聚合
 create index idx_payments_date_partner
   on payments (payment_date, partner_id);
+
+-- 追款清單依預計收款日排序；只有已確認出貨單會談應收，其餘不進索引
+create index idx_orders_expected_payment
+  on orders (expected_payment_date)
+  where type = 'sale' and status = 'confirmed';
 
 -- 客戶餘額關鍵字比對（trigram，支援 ilike '%foo%'）
 create index idx_partners_name_trgm
@@ -296,6 +305,41 @@ select
 from outstanding_order_view;
 
 -- ----------------------------------------
+-- 追款清單：未收清的出貨單 + 預計收款日分類
+-- 建在 outstanding_order_view 之上（它已是「outstanding_amount > 0」的定義來源），
+-- 不另寫一份未收判定，否則清單與單據頁的未結清條件可能漂移。
+--
+-- 「今天」一律用台北時區，不可用 current_date：Supabase 的 session 時區是 UTC，
+-- 台北時間當天 08:00 前 current_date 會算成前一天，早上開頁面會看到昨天的分類
+-- （與前端禁用 toISOString() 是同一個坑）。每日提醒信在早上寄出，正好落在這個區間內。
+-- ----------------------------------------
+create view receivable_followup_view as
+select
+  ov.id as order_id,
+  ov.order_no,
+  ov.order_date,
+  ov.partner_id,
+  p.name       as partner_name,
+  p.partner_no,
+  p.phone      as partner_phone,
+  o.expected_payment_date,
+  ov.order_total,
+  ov.paid_amount,
+  ov.outstanding_amount,
+  ov.payment_status,
+  case
+    when o.expected_payment_date is null then 'unscheduled'
+    when o.expected_payment_date <  (now() at time zone 'Asia/Taipei')::date then 'overdue'
+    when o.expected_payment_date =  (now() at time zone 'Asia/Taipei')::date then 'today'
+    else 'upcoming'
+  end as due_bucket,
+  -- 正數為已逾期天數，負數為距到期還有幾天；未設定日期則為 null。
+  ((now() at time zone 'Asia/Taipei')::date - o.expected_payment_date) as days_past_due
+from outstanding_order_view ov
+join orders o        on o.id = ov.id
+left join partners p on p.id = ov.partner_id;
+
+-- ----------------------------------------
 -- 單據搜尋（時間區間 + 關鍵字）
 -- payment_status 讀推導值；total_amount 為淨額（小計 − 折讓 + 稅），
 -- 與付款狀態、partner_balance_view、dashboard_summary 同口徑。
@@ -320,7 +364,8 @@ select
   o.order_no || ' ' || coalesce(o.note,'')
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(pr.name || ' ' || pr.sku, ' '), '')
-    as search_text
+    as search_text,
+  o.expected_payment_date
 from orders o
 left join partners p     on p.id = o.partner_id
 left join order_items oi on oi.order_id = o.id
@@ -581,7 +626,8 @@ create or replace function create_order(
   p_order_date date default current_date,
   p_discount numeric default 0,
   p_tax numeric default 0,
-  p_status text default 'confirmed'
+  p_status text default 'confirmed',
+  p_expected_payment_date date default null
 ) returns uuid
 language plpgsql
 security invoker
@@ -605,10 +651,12 @@ begin
     raise exception '單據明細不可為空';
   end if;
 
-  insert into orders (order_no, type, status, partner_id, order_date, discount, tax, note)
+  insert into orders (order_no, type, status, partner_id, order_date, discount, tax, note,
+                      expected_payment_date)
   values (
     'ORD-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(md5(random()::text), 1, 4),
-    p_type, p_status, p_partner, p_order_date, p_discount, p_tax, p_note
+    p_type, p_status, p_partner, p_order_date, p_discount, p_tax, p_note,
+    p_expected_payment_date
   )
   returning id into v_order_id;
 
@@ -716,6 +764,7 @@ end $$;
 
 -- 編輯草稿單（整張替換 header + 明細）
 -- 已確認/作廢不可經此修改；type 一律鎖定，改型別應作廢重開。
+-- 預計收款日隨表頭整張替換：傳 null 即為清空，與 partner/note 的語意一致。
 create or replace function update_draft_order(
   p_order_id uuid,
   p_partner uuid,
@@ -723,7 +772,8 @@ create or replace function update_draft_order(
   p_items jsonb,
   p_order_date date,
   p_discount numeric default 0,
-  p_tax numeric default 0
+  p_tax numeric default 0,
+  p_expected_payment_date date default null
 ) returns void
 language plpgsql
 security invoker
@@ -752,11 +802,12 @@ begin
   end if;
 
   update orders
-  set partner_id = p_partner,
-      note       = p_note,
-      order_date = coalesce(p_order_date, order_date),
-      discount   = coalesce(p_discount, 0),
-      tax        = coalesce(p_tax, 0)
+  set partner_id            = p_partner,
+      note                  = p_note,
+      order_date            = coalesce(p_order_date, order_date),
+      discount              = coalesce(p_discount, 0),
+      tax                   = coalesce(p_tax, 0),
+      expected_payment_date = p_expected_payment_date
   where id = p_order_id;
 
   delete from order_items where order_id = p_order_id;
@@ -797,12 +848,17 @@ begin
   end loop;
 end $$;
 
--- 編輯單據備註（已確認/草稿皆可，作廢不可）
+-- 編輯單據備註與預計收款日（已確認/草稿皆可，作廢不可）
 -- payment_status 由收款紀錄推導，一律拒絕寫入；保留參數只為相容舊前端。
+--
+-- 預計收款日用 p_update_expected 旗標控制是否覆寫，不能沿用 note 的 coalesce 寫法：
+-- coalesce 無法表達「清空」，傳 null 會被當成「不要動」，使用者就永遠刪不掉已填的日期。
 create or replace function update_order_meta(
-  p_order_id       uuid,
-  p_note           text default null,
-  p_payment_status text default null
+  p_order_id             uuid,
+  p_note                 text default null,
+  p_payment_status       text default null,
+  p_expected_payment_date date default null,
+  p_update_expected      boolean default false
 ) returns void
 language plpgsql
 security invoker
@@ -828,7 +884,11 @@ begin
   end if;
 
   update orders
-  set note = coalesce(p_note, note)
+  set note = coalesce(p_note, note),
+      expected_payment_date = case
+        when p_update_expected then p_expected_payment_date
+        else expected_payment_date
+      end
   where id = p_order_id;
 end $$;
 
