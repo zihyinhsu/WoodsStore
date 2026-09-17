@@ -331,14 +331,14 @@ async function loadCostAnalysisData(productId, container, from, to) {
     contentDiv.innerHTML = `
       <div class="metric-cards">
         <div class="metric-card">
-          <div class="metric-card-title">平均出貨成本</div>
-          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(avgSaleCost) : '--'}</div>
-          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} 成本 ${formatCurrency(cost)}</div>
+          <div class="metric-card-title">期間出貨收益</div>
+          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(saleAmount) : '--'}</div>
+          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} 均價 ${formatCurrency(avgSalePrice)}</div>
         </div>
         <div class="metric-card">
-          <div class="metric-card-title">平均出貨單價</div>
-          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(avgSalePrice) : '--'}</div>
-          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} ${formatCurrency(saleAmount)}</div>
+          <div class="metric-card-title">期間出貨成本</div>
+          <div class="metric-card-value">${saleQty > 0 ? formatCurrency(cost) : '--'}</div>
+          <div class="metric-card-subtitle">出${saleQty}${escapeHtml(unit)} 均 ${formatCurrency(avgSaleCost)}</div>
         </div>
         <div class="metric-card">
           <div class="metric-card-title">毛利</div>
