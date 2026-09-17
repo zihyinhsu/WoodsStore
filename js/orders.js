@@ -152,7 +152,7 @@ function renderOrdersTable() {
            找不到單號 ${escapeHtml(searchKeyword.value)}，該單據可能已被刪除或單號已變更。
          </div>`
       : '';
-    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">找不到單據${hint}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">找不到單據${hint}</td></tr>`;
     return;
   }
 
@@ -162,10 +162,11 @@ function renderOrdersTable() {
     'adjust': '<span class="badge badge-orange">調整</span>'
   };
 
+  // data-status 讓樣式與測試不必靠欄位位置定位（類型與狀態同格，索引不再對得上欄名）。
   const statusMap = {
-    'draft': '<span class="badge badge-gray">草稿</span>',
-    'confirmed': '<span class="badge badge-green">已確認</span>',
-    'void': '<span class="badge badge-red">已作廢</span>'
+    'draft': '<span class="badge badge-gray" data-status="draft">草稿</span>',
+    'confirmed': '<span class="badge badge-green" data-status="confirmed">已確認</span>',
+    'void': '<span class="badge badge-red" data-status="void">已作廢</span>'
   };
 
   const paymentMap = {
@@ -187,14 +188,24 @@ function renderOrdersTable() {
          title="查看此單據的收款紀錄">${label}${detail}</a>`;
   };
 
+  // 單號認不出單據內容，所以這一欄以商品摘要為主、單號降為次要行。
+  // top_item_name 是 order_search_view 取的金額最大品項（見 patch-024），
+  // 項數用 item_count 在這裡組文案，不讓中文字串長進 view 裡。
+  const itemSummary = (order) => {
+    if (!order.top_item_name) return '-';
+    const name = escapeHtml(order.top_item_name);
+    return order.item_count > 1 ? `${name} 等 ${order.item_count} 項` : name;
+  };
+
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
       <td>${formatDate(order.order_date)}</td>
-      <td>${escapeHtml(order.order_no)}</td>
-      <td>${typeMap[order.type]}</td>
-      <td>${statusMap[order.status]}</td>
+      <td>
+        ${itemSummary(order)}
+        <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
+      </td>
+      <td>${typeMap[order.type]} ${statusMap[order.status]}</td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
-      <td>${order.item_count}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
       <td>${order.type === 'sale' && order.status === 'confirmed' ? paymentLink(order) : '-'}</td>
       <td>
@@ -283,7 +294,7 @@ async function toggleOrderDetail(orderId, rowElement) {
 
     const detailHtml = `
       <tr class="detail-row">
-        <td colspan="9" style="padding: 1rem 2rem;">
+        <td colspan="7" style="padding: 1rem 2rem;">
           <div class="d-flex justify-between align-center mb-2">
             <h4 style="margin: 0;">單據明細</h4>
             ${isSale ? `<button class="btn btn-outline btn-print-shipping" data-id="${orderId}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印出貨單</button>` : ''}

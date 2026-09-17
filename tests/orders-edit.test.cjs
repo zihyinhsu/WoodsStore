@@ -46,10 +46,11 @@ const fieldState = async page => ({
   r.check('再次點擊收合', await page.locator('.detail-row').count(), 0);
 
   // 按鈕依狀態顯示
+  // 讀 badge 的 data-status 而非欄位索引：類型與狀態同格後，位置已不對應欄名
   const byStatus = await page.locator('tr.clickable-row').evaluateAll(trs => {
     const out = {};
     trs.forEach(tr => {
-      const s = tr.children[3]?.innerText.trim();
+      const s = tr.querySelector('[data-status]')?.dataset.status;
       out[s] = out[s] || { total: 0, edit: 0 };
       out[s].total++;
       if (tr.querySelector('.btn-edit')) out[s].edit++;
@@ -57,11 +58,11 @@ const fieldState = async page => ({
     return out;
   });
   r.info('各狀態單據數', JSON.stringify(byStatus));
-  if (byStatus['已作廢']) {
-    r.check('作廢單無編輯按鈕', byStatus['已作廢'].edit, 0);
+  if (byStatus['void']) {
+    r.check('作廢單無編輯按鈕', byStatus['void'].edit, 0);
   }
-  if (byStatus['已確認']) {
-    r.check('已確認單有編輯按鈕', byStatus['已確認'].edit, byStatus['已確認'].total);
+  if (byStatus['confirmed']) {
+    r.check('已確認單有編輯按鈕', byStatus['confirmed'].edit, byStatus['confirmed'].total);
   }
 
   // 新增模式：所有欄位可編輯

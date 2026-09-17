@@ -505,6 +505,9 @@ tbody tr:hover {
 .badge-red { background: #fff5f5; color: #c53030; }
 .badge-gray { background: #edf2f7; color: #4a5568; }
 
+/* 同格並排的 badge（單據列表的類型／狀態）各有 box-shadow，緊貼會糊在一起 */
+.badge + .badge { margin-left: 0.25rem; }
+
 /* Modals */
 .modal-overlay {
   position: fixed;
