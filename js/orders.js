@@ -10,6 +10,7 @@ let productsCache = [];
 let partnersCache = [];
 let editingOrderId = null;
 let editingOrderStatus = null;
+let editingOrderType = null;
 let pendingAutoExpand = false;
 
 // DOM Elements
@@ -500,6 +501,15 @@ function calculateTotal() {
   document.getElementById('order-total-display').textContent = formatCurrency(finalTotal);
 }
 
+// 單據類型決定哪些欄位有意義：出貨單對客戶隱藏成本價，
+// 預計收款日則反過來只有出貨單才談（進貨／調整單不產生應收）。
+// 開單、切換類型、載入既有單三處都要套用，集中在這裡避免改一處漏兩處。
+function applyTypeVisibility(type) {
+  const modal = document.getElementById('order-modal');
+  modal.classList.toggle('hide-prices', type === 'sale');
+  modal.classList.toggle('hide-expected', type !== 'sale');
+}
+
 function setOrderModalMode(mode) {
   const isCreate = mode === 'create';
   const isDraft = mode === 'draft';
@@ -518,7 +528,9 @@ function setOrderModalMode(mode) {
   const adjustOption = document.querySelector('#order-type option[value="adjust"]');
   if (adjustOption) adjustOption.hidden = isCreate;
 
-  // 已確認單據只開放備註；改動明細或金額等同改寫已生效的庫存與帳務。
+  // 已確認單據只開放備註與預計收款日；改動明細或金額等同改寫已生效的庫存與帳務。
+  // order-expected-date 刻意不列入下面的鎖定清單：收款日是對未來的約定，
+  // 客戶改口期程時必須能更新，它不影響庫存也不影響已推導的付款狀態。
   const headerLocked = isConfirmed;
   ['order-date', 'order-partner', 'order-discount', 'order-tax'].forEach(id => {
     document.getElementById(id).disabled = headerLocked;
@@ -564,6 +576,7 @@ async function openEditOrder(orderId) {
 
     editingOrderId = orderId;
     editingOrderStatus = order.status;
+    editingOrderType = order.type;
 
     const form = document.getElementById('order-form');
     form.reset();
@@ -574,9 +587,10 @@ async function openEditOrder(orderId) {
     document.getElementById('order-note').value = order.note || '';
     document.getElementById('order-discount').value = order.discount || 0;
     document.getElementById('order-tax').value = order.tax || 0;
+    // date 欄位是 YYYY-MM-DD，直接取用不經過 new Date()，避免又踩到 UTC 轉換。
+    document.getElementById('order-expected-date').value = order.expected_payment_date || '';
 
-    const modal = document.getElementById('order-modal');
-    modal.classList.toggle('hide-prices', order.type === 'sale');
+    applyTypeVisibility(order.type);
 
     updatePartnerDropdown();
     document.getElementById('order-partner').value = order.partner_id || '';
@@ -603,18 +617,25 @@ async function openEditOrder(orderId) {
   }
 }
 
-async function saveConfirmedOrderNote() {
+async function saveConfirmedOrderMeta() {
+  // 只有出貨單談應收，其餘類型的欄位是隱藏的，不該把畫面上的空值寫回去清掉資料，
+  // 因此用 p_update_expected 明確告訴後端這次要不要動這個欄位。
+  const isSale = editingOrderType === 'sale';
+
   try {
     const { error } = await sb.rpc('update_order_meta', {
       p_order_id: editingOrderId,
-      p_note: document.getElementById('order-note').value || ''
+      p_note: document.getElementById('order-note').value || '',
+      p_expected_payment_date: document.getElementById('order-expected-date').value || null,
+      p_update_expected: isSale
     });
     if (error) throw error;
 
-    showToast('備註已更新', 'success');
+    showToast(isSale ? '備註與預計收款日已更新' : '備註已更新', 'success');
     closeModal('order-modal');
     editingOrderId = null;
     editingOrderStatus = null;
+    editingOrderType = null;
     loadOrders();
   } catch (error) {
     console.error('Error updating note:', error);
@@ -623,10 +644,10 @@ async function saveConfirmedOrderNote() {
 }
 
 async function saveOrder(status = 'confirmed') {
-  // 已確認單據的表頭與明細欄位皆為 disabled，僅備註可改，
+  // 已確認單據的表頭與明細欄位皆為 disabled，僅備註與預計收款日可改，
   // 直接走 meta 更新以免誤用整張替換的 RPC。
   if (editingOrderId && editingOrderStatus === 'confirmed') {
-    await saveConfirmedOrderNote();
+    await saveConfirmedOrderMeta();
     return;
   }
 
@@ -668,7 +689,11 @@ async function saveOrder(status = 'confirmed') {
     p_items: items,
     p_order_date: document.getElementById('order-date').value,
     p_discount: parseFloat(document.getElementById('order-discount').value) || 0,
-    p_tax: parseFloat(document.getElementById('order-tax').value) || 0
+    p_tax: parseFloat(document.getElementById('order-tax').value) || 0,
+    // 只有出貨單會進追款清單；其餘類型即使欄位殘留舊值也一律不寫入。
+    p_expected_payment_date: type === 'sale'
+      ? (document.getElementById('order-expected-date').value || null)
+      : null
   };
 
   try {
@@ -698,6 +723,7 @@ async function saveOrder(status = 'confirmed') {
     closeModal('order-modal');
     editingOrderId = null;
     editingOrderStatus = null;
+    editingOrderType = null;
     loadOrders();
     // Refresh products cache for updated stock
     loadProductsCache();
@@ -750,34 +776,25 @@ function setupEventListeners() {
   document.getElementById('btn-add-order').addEventListener('click', () => {
     editingOrderId = null;
     editingOrderStatus = null;
+    editingOrderType = null;
     setOrderModalMode('create');
     document.getElementById('order-form').reset();
     document.getElementById('order-date').value = toDateInputValue(new Date());
     document.getElementById('order-lines').innerHTML = '';
     document.getElementById('order-total-display').textContent = 'NT$ 0';
-    
-    const type = document.getElementById('order-type').value;
-    const modal = document.getElementById('order-modal');
-    if (type === 'sale') {
-      modal.classList.add('hide-prices');
-    } else {
-      modal.classList.remove('hide-prices');
-    }
-    
+
+    // 預計收款日刻意不預填：它是未來的約定日，填今天沒有意義，
+    // 也因此不需要 toDateInputValue（form.reset() 已清空）。
+    applyTypeVisibility(document.getElementById('order-type').value);
+
     updatePartnerDropdown();
     addLineItem();
     openModal('order-modal');
   });
 
   document.getElementById('order-type').addEventListener('change', (e) => {
-    const type = e.target.value;
-    const modal = document.getElementById('order-modal');
-    if (type === 'sale') {
-      modal.classList.add('hide-prices');
-    } else {
-      modal.classList.remove('hide-prices');
-    }
-    
+    applyTypeVisibility(e.target.value);
+
     updatePartnerDropdown();
     // Update prices for existing lines
     document.querySelectorAll('.line-product').forEach(select => {
