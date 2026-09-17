@@ -1,5 +1,10 @@
 const { chromium } = require('playwright');
 
+// 測試帳號放 .env（已 gitignore），不必每次在命令列帶——密碼也就不會留在 shell 歷史。
+// Node 20.12+ 內建 loadEnvFile，不必多一個 dotenv 相依；沒有 .env 就靜默略過，
+// 仍可用既有環境變數（CI 走 secrets 就是這條路）。
+try { process.loadEnvFile(); } catch { /* 沒有 .env 或舊版 Node：維持原本行為 */ }
+
 const BASE_URL = process.env.BASE_URL || 'http://localhost:4173';
 
 const WRITE_METHODS = ['POST', 'PATCH', 'PUT', 'DELETE'];

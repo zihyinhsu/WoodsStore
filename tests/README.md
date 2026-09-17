@@ -37,7 +37,16 @@ BASE_URL=http://localhost:8080 node tests/run-all.cjs
 ## 重要：測試需登入
 
 RLS 已限 `authenticated`，`helpers.js` 的 `launch()` 會在跑任何流程前先登入，
-否則所有查詢回空、頁面全紅。請以環境變數提供測試帳號（不寫死進版控）：
+否則所有查詢回空、頁面全紅。測試帳號填在專案根目錄的 `.env`（不進版控，範本見 `.env.example`）：
+
+```
+TEST_EMAIL=someone@example.com
+TEST_PASSWORD=...
+```
+
+`helpers.js` 會用 `process.loadEnvFile()` 自動載入，之後直接 `npm test` 即可，
+不必在命令列帶密碼（也就不會留在 shell 歷史）。沒有 `.env` 時會退回讀環境變數，
+CI 走 secrets 即是這條路：
 
 ```bash
 TEST_EMAIL=someone@example.com TEST_PASSWORD=... npm test
