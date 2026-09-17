@@ -1,0 +1,51 @@
+-- ============================================================
+-- 每日追款提醒信的排程設定
+--
+-- 這份檔案含專案網址與權杖，因此以 .example 保存（比照 .env.example）：
+-- 複製內容、把兩個 <...> 佔位符換成實際值後，貼到
+-- Supabase Dashboard → SQL Editor 執行。填好的版本不要進版控。
+--
+-- 前置：Edge Function 已部署
+--   supabase functions deploy receivables-digest --no-verify-jwt
+-- ============================================================
+
+-- 1. 擴充（Dashboard → Database → Extensions 也可以用點的）
+--    pg_cron 負責排程，pg_net 負責從資料庫發出 HTTP 請求。
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- 2. 排程
+--    cron 運行在 UTC，不是台北時間。'0 0 * * *' 是 UTC 00:00，換算為台北 08:00。
+--    要改時間請記得換算：台北時間 = UTC + 8。
+--
+--    X-Digest-Token 對應 Edge Function 的 DIGEST_TOKEN secret，
+--    因為函式以 --no-verify-jwt 部署（呼叫方是排程、不帶使用者 JWT），
+--    改由這個自訂標頭擋掉外部呼叫。
+select cron.schedule(
+  'receivables-digest-daily',
+  '0 0 * * *',
+  $$
+  select net.http_post(
+    url := 'https://<PROJECT-REF>.supabase.co/functions/v1/receivables-digest',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'X-Digest-Token', '<DIGEST_TOKEN>'
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+
+-- ------------------------------------------------------------------
+-- 維運用查詢
+-- ------------------------------------------------------------------
+
+-- 目前的排程
+-- select * from cron.job;
+
+-- 最近的執行結果（排程本身成功不代表信寄出去了，
+-- 實際寄送結果要看 Edge Function 的 log）
+-- select * from cron.job_run_details order by start_time desc limit 10;
+
+-- 停用排程
+-- select cron.unschedule('receivables-digest-daily');
