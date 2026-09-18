@@ -2,7 +2,7 @@
 -- 進銷存系統 — 完整 schema（整併版）
 -- ============================================================
 -- 用途：在一個「全新」的 Supabase 專案上一次建到目前最終狀態。
---       等價於依序執行 migration.sql + patch-001 ~ patch-020 的結果，
+--       等價於依序執行 migration.sql + patch-001 ~ patch-026 的結果，
 --       但只保留每個物件的最終定義，並依相依關係重新排序。
 --
 -- 與原始 patch 系列的差異（刻意）：
@@ -425,7 +425,10 @@ select
   -- 放在最後一欄：create or replace view 只能在尾端追加欄位，插在既有欄位間會報
   -- cannot change name of view column（既有欄的名稱與位置不可變動）。
   o.discount * oi.subtotal
-    / nullif(sum(oi.subtotal) over (partition by oi.order_id), 0) as order_discount_alloc
+    / nullif(sum(oi.subtotal) over (partition by oi.order_id), 0) as order_discount_alloc,
+  -- patch-026 追加：客戶毛利要按客戶聚合，並算得出「這客戶期間內出了幾張單」。
+  o.partner_id,
+  o.id as order_id
 from orders o
 join order_items oi on oi.order_id = o.id
 where o.status = 'confirmed'
@@ -1444,6 +1447,185 @@ as $$
     (select * from ranked order by estimated_profit asc,  sku asc limit p_limit)
   ) top_bottom
   order by estimated_profit desc, sku asc;
+$$;
+
+-- ----------------------------------------
+-- 5.6 客戶毛利（patch-026）
+-- 口徑與上方商品成本分析完全一致：收益未稅、已扣分攤整單折讓，成本讀 unit_cost 快照。
+-- 兩個必須知道的失真來源，都以欄位回報給前端而非默默吞掉：
+--   1. unit_cost 為 null 以 0 計入成本 → 毛利高估，故回傳 no_cost_qty。
+--   2. partner_id 為 null 的出貨單不屬於任何客戶 → 客戶毛利合計會小於
+--      product_cost_analysis_summary 的同期毛利，差額即這些無客戶單據。
+-- ----------------------------------------
+
+-- 逐客戶毛利（一客戶一列；排序與分頁交給前端，同 product_cost_analysis）
+-- 只回期間內有出貨的客戶：沒出貨就沒有毛利可談，列出來只是一堆 0。
+-- p_partner_id 指定時只回那一位客戶——modal 要「單一客戶 × 自訂區間」的彙總，
+-- 走這裡才與清單同一套算式，不必在前端另湊一份數字（同 get_partner_balances 的做法）。
+create or replace function partner_profit(
+  p_from date default null,
+  p_to date default null,
+  p_keyword text default null,
+  p_partner_id uuid default null
+) returns table (
+  partner_id uuid,
+  partner_no text,
+  name text,
+  sale_amount numeric,
+  cost numeric,
+  profit numeric,
+  order_count bigint,
+  last_sale_date date,
+  no_cost_qty bigint
+)
+language sql
+stable
+security invoker
+as $$
+  with params as (
+    select nullif(btrim(coalesce(p_keyword, '')), '') as keyword
+  ),
+  pattern as (
+    -- 與 get_partner_balances 同一段跳脫寫法，勿各寫一份。
+    select
+      case
+        when pm.keyword is null then null
+        else '%' || replace(replace(replace(pm.keyword, '\', '\\'), '%', '\%'), '_', '\_') || '%'
+      end as like_pattern
+    from params pm
+  ),
+  agg as (
+    select
+      m.partner_id,
+      sum(m.subtotal - coalesce(m.order_discount_alloc, 0))::numeric(12,2) as sale_amount,
+      sum(coalesce(m.unit_cost, 0) * m.qty)::numeric(12,2)                 as cost,
+      count(distinct m.order_id)                                           as order_count,
+      max(m.order_date)                                                    as last_sale_date,
+      coalesce(sum(m.qty) filter (where m.unit_cost is null), 0)           as no_cost_qty
+    from product_movement_base m
+    where m.type = 'sale'
+      and m.partner_id is not null
+      and (p_partner_id is null or m.partner_id = p_partner_id)
+      and (p_from is null or m.order_date >= p_from)
+      and (p_to   is null or m.order_date <= p_to)
+    group by m.partner_id
+  )
+  select
+    p.id,
+    p.partner_no,
+    p.name,
+    a.sale_amount,
+    a.cost,
+    (a.sale_amount - a.cost)::numeric(12,2),
+    a.order_count,
+    a.last_sale_date,
+    a.no_cost_qty
+  from agg a
+  join partners p on p.id = a.partner_id and p.type = 'customer'
+  cross join pattern pt
+  where pt.like_pattern is null
+    or p.partner_no           ilike pt.like_pattern escape '\'
+    or p.name                 ilike pt.like_pattern escape '\'
+    or coalesce(p.tax_id, '') ilike pt.like_pattern escape '\';
+$$;
+
+-- 客戶毛利排行（總覽橫條圖）：頭尾各 p_limit 名，結構照 cost_ranking。
+-- 帶 p_keyword：圖與表格吃同一組篩選，否則搜尋後兩邊講的是不同客戶群。
+-- 除了 profit 還回出貨額／成本／單數：長條只畫得出毛利一個維度，滑過去的 tooltip
+-- 要答得出「這條為什麼這麼長」（薄利多銷還是量小利厚），否則得再去表格找同一位客戶。
+create or replace function partner_profit_ranking(
+  p_from date default null,
+  p_to date default null,
+  p_limit int default 5,
+  p_keyword text default null
+) returns table (
+  partner_id uuid,
+  partner_no text,
+  name text,
+  profit numeric,
+  sale_amount numeric,
+  cost numeric,
+  order_count bigint
+)
+language sql
+stable
+security invoker
+as $$
+  with ranked as (
+    select pp.partner_id, pp.partner_no, pp.name, pp.profit,
+           pp.sale_amount, pp.cost, pp.order_count
+    from partner_profit(p_from, p_to, p_keyword) pp
+  )
+  select * from (
+    (select * from ranked order by profit desc, partner_no asc limit p_limit)
+    union
+    (select * from ranked order by profit asc,  partner_no asc limit p_limit)
+  ) top_bottom
+  order by profit desc, partner_no asc;
+$$;
+
+-- 客戶毛利的期間合計。直接對 partner_profit 加總而非另寫聚合：
+-- 合計列與清單因此恆等，不會出現兩組差一點的數字讓人無從判斷哪個才算數。
+create or replace function partner_profit_summary(
+  p_from date default null,
+  p_to date default null,
+  p_keyword text default null
+) returns table (
+  sale_amount numeric,
+  cost numeric,
+  profit numeric,
+  customer_count bigint
+)
+language sql
+stable
+security invoker
+as $$
+  select
+    coalesce(sum(pp.sale_amount), 0)::numeric(12,2),
+    coalesce(sum(pp.cost), 0)::numeric(12,2),
+    coalesce(sum(pp.profit), 0)::numeric(12,2),
+    count(*)
+  from partner_profit(p_from, p_to, p_keyword) pp;
+$$;
+
+-- 單一客戶的商品組成（點列後 modal 的明細；前端分頁）
+-- 回答「在這個客戶身上是靠什麼賺的」。單據層級的查帳有對帳單與單據管理，
+-- 這裡刻意只做商品維度。
+create or replace function partner_profit_products(
+  p_partner_id uuid,
+  p_from date default null,
+  p_to date default null
+) returns table (
+  product_id uuid,
+  sku text,
+  name text,
+  unit text,
+  sale_qty bigint,
+  sale_amount numeric,
+  cost numeric,
+  profit numeric
+)
+language sql
+stable
+security invoker
+as $$
+  select
+    pr.id,
+    pr.sku,
+    pr.name,
+    pr.unit,
+    sum(m.qty)::bigint,
+    sum(m.subtotal - coalesce(m.order_discount_alloc, 0))::numeric(12,2),
+    sum(coalesce(m.unit_cost, 0) * m.qty)::numeric(12,2),
+    (sum(m.subtotal - coalesce(m.order_discount_alloc, 0))
+      - sum(coalesce(m.unit_cost, 0) * m.qty))::numeric(12,2)
+  from product_movement_base m
+  join products pr on pr.id = m.product_id
+  where m.type = 'sale'
+    and m.partner_id = p_partner_id
+    and (p_from is null or m.order_date >= p_from)
+    and (p_to   is null or m.order_date <= p_to)
+  group by pr.id, pr.sku, pr.name, pr.unit;
 $$;
 
 -- ----------------------------------------
