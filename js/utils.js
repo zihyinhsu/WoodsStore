@@ -99,6 +99,17 @@ export function escapeHtml(value) {
   }[ch]));
 }
 
+// 列表用的商品摘要。單號認不出單據內容，所以單據管理、收款主表、沖帳明細一律
+// 以「商品摘要為主、單號為輔」呈現，摘要文案集中在這裡組，不寫進 view。
+// 回傳值可直接塞進 innerHTML（品名已跳脫）。
+// 取不到代表品項時回傳 '-'：沒有明細的單據會是這樣，資料庫尚未套用 patch-025 的
+// 環境也會是這樣（欄位不存在），兩者都不該讓整列壞掉。
+export function itemSummary(topItemName, itemCount) {
+  if (!topItemName) return '-';
+  const name = escapeHtml(topItemName);
+  return Number(itemCount) > 1 ? `${name} 等 ${Number(itemCount)} 項` : name;
+}
+
 // 產生一個跳到單據管理、直接搜這張單的連結。收款沖帳明細與商品進出紀錄都會用到。
 // status=all 不可省略：單據頁預設只列有效單據，作廢的單會直接搜不到而顯示空白。
 // expand=1 讓對方頁面在命中單筆時自動展開明細，省去到站後再點一次。

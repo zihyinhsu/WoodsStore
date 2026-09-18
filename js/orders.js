@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -188,20 +188,11 @@ function renderOrdersTable() {
          title="查看此單據的收款紀錄">${label}${detail}</a>`;
   };
 
-  // 單號認不出單據內容，所以這一欄以商品摘要為主、單號降為次要行。
-  // top_item_name 是 order_search_view 取的金額最大品項（見 patch-024），
-  // 項數用 item_count 在這裡組文案，不讓中文字串長進 view 裡。
-  const itemSummary = (order) => {
-    if (!order.top_item_name) return '-';
-    const name = escapeHtml(order.top_item_name);
-    return order.item_count > 1 ? `${name} 等 ${order.item_count} 項` : name;
-  };
-
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
       <td>${formatDate(order.order_date)}</td>
       <td>
-        ${itemSummary(order)}
+        ${itemSummary(order.top_item_name, order.item_count)}
         <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
       </td>
       <td>${typeMap[order.type]} ${statusMap[order.status]}</td>
