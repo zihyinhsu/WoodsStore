@@ -132,10 +132,25 @@
 - 已用於：對帳單、單據管理、總覽成本分析
 - 規則：起訖日期需驗證 from ≤ to，錯誤以 toast 呈現
 
+### Analysis Block（`.metric-cards` + `.records-table` + `.date-controls`）
+
+- 用途：modal 內的「分析」版型。上方一排指標卡、下方明細表，最上方為區間工具列
+- 結構：
+  - `.date-controls`：兩個 `input[type=date]` + 快捷鈕 `.btn-quick-date[data-range]`（對應 `dateRange()` 的 preset）
+  - `.metric-cards` → `.metric-card` → `.metric-card-title` / `.metric-card-value` / `.metric-card-subtitle`；
+    四張固定並排，負值加 `.negative`（危險色）
+  - `.records-table`：modal 內的緊湊表格（`0.75rem` 內距），數字欄加 `.num` 或 `.num-col` 轉等寬 Roboto
+- 已用於：商品成本分析（商品管理）、客戶毛利分析（總覽與往來對象共用的 modal）
+- 樣式位置：`css/style.css`。這組元件曾各自內聯在 `index.html` / `products.html`，
+  第三個使用者出現時就會複製第三份，因此收進共用層
+- 規則：寬版 modal 套 `.modal-content--wide`；分頁列必須放在會被重繪的容器之外
+
 ### Table
 
 - `th` 下方 2px 主邊框，`td` 下方 1px 次邊框，列 hover 反白 5% 黑
 - 空狀態使用 `<td class="empty-state">` 置中說明
+- 整列可點（點列開分析 modal）加 `.clickable-row`；列內的按鈕需在 handler 中 `closest()` 排除，
+  否則點編輯鈕會同時開兩個 modal
 
 ### Badge
 

@@ -1,6 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
+import { openPartnerProfitModal } from './partner-profit-modal.js';
 import { PAGE_SIZE, totalPages, escapeHtml } from './utils.js';
 
 let currentPartners = [];
@@ -37,8 +38,11 @@ function renderPartnersTable(partners) {
     return;
   }
 
+  // 客戶列可點開毛利分析（供應商沒有毛利可談，毛利一律從出貨算）。
+  const clickable = currentType === 'customer';
+
   tbody.innerHTML = partners.map(p => `
-    <tr>
+    <tr class="${clickable ? 'clickable-row' : ''}" data-id="${p.id}"${clickable ? ' title="查看此客戶的毛利分析"' : ''}>
       <td>${escapeHtml(p.partner_no || '-')}</td>
       <td>${escapeHtml(p.name)}</td>
       <td>${escapeHtml(p.tax_id || '-')}</td>
@@ -56,6 +60,17 @@ function renderPartnersTable(partners) {
       const id = e.target.getAttribute('data-id');
       const partner = currentPartners.find(p => p.id === id);
       if (partner) openEditModal(partner);
+    });
+  });
+
+  // 點列開毛利 modal，但編輯鈕要讓給它自己的 handler，否則兩個 modal 會同時被打開。
+  tbody.querySelectorAll('.clickable-row').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-edit')) return;
+
+      const partner = currentPartners.find(p => p.id === tr.getAttribute('data-id'));
+      // 區間不指定，由 modal 套預設的本月（總覽則會帶入當前查詢區間）。
+      if (partner) openPartnerProfitModal(partner.id, partner.name);
     });
   });
 }

@@ -487,6 +487,12 @@ tbody tr:hover {
   background: rgba(31, 31, 31, 0.05);
 }
 
+/* 整列可點（點列開分析 modal）。總覽的客戶毛利表與往來對象的客戶名冊都用得到，
+   因此放共用層，不再像 products.html 那樣寫成單一表格限定的內聯規則。 */
+tbody tr.clickable-row {
+  cursor: pointer;
+}
+
 /* Badges */
 .badge {
   display: inline-block;
@@ -589,6 +595,110 @@ tbody tr:hover {
 .btn.close-btn {
   font-size: 1rem;
   font-weight: 600;
+}
+
+/* 分析區塊：區間工具列 / 指標卡 / 明細表
+   商品成本分析（products.html 的 modal）與客戶毛利分析（總覽與往來對象共用的 modal）
+   用的是同一組元件。原本這些規則內聯在 index.html 與 products.html 的 <style>，
+   第三個使用者出現時就會複製第三份——分頁列散落五支檔案的教訓已經付過一次。
+   色值一律走 CSS 變數，配色改一處即全站同步（見 DESIGN.md）。 */
+.modal-content--wide {
+  max-width: 920px;
+  width: 92%;
+}
+
+.date-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.date-controls input[type="date"] {
+  padding: 0.25rem 0.5rem;
+  border: 2px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: #fff;
+  font-family: 'Roboto', sans-serif;
+}
+
+.metric-cards {
+  display: grid;
+  /* 四張卡固定並排一列；minmax(0,1fr) 讓欄位可壓縮到容器內，
+     避免長 subtitle 把欄撐破、擠出 modal。 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  padding: 1rem;
+  border-radius: var(--border-radius);
+  box-shadow: 2px 2px 0 rgba(31, 31, 31, 0.1);
+}
+
+.metric-card-title {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.metric-card-value {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 2rem;
+  color: var(--text-main);
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.metric-card-value.negative {
+  color: var(--danger);
+}
+
+.metric-card-subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.records-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 2px solid var(--border-color);
+  background: #fff;
+}
+
+.records-table th,
+.records-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+  text-align: left;
+}
+
+.records-table th {
+  background: var(--bg-card);
+  font-weight: 600;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.records-table tr.adjust-row {
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+
+/* 數字欄改用等寬數字的 Roboto，位數對齊才好比大小 */
+.records-table td.num-col,
+.records-table td.num {
+  font-family: 'Roboto', sans-serif;
+  white-space: nowrap;
+}
+
+/* 商品名下方的小字 SKU。總覽的成本清單與客戶毛利 modal 都會用到，
+   因此放共用層——它原本只在 index.html 內聯，modal 搬到往來對象頁就會失去樣式。 */
+.cost-sku {
+  font-size: 0.8rem;
 }
 
 /* Toasts */

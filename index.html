@@ -37,16 +37,46 @@
       font-size: 0.85rem;
       margin-top: 1rem;
     }
-    .cost-sku {
-      font-size: 0.8rem;
-    }
-    #cost-table th, #cost-table td {
+    /* .cost-sku 已搬到 css/style.css：客戶毛利 modal 在往來對象頁也要用同一個小字樣式。 */
+    #cost-table th, #cost-table td,
+    #partner-profit-table th, #partner-profit-table td {
       padding: 0.75rem 0.5rem;
     }
-    #cost-table .num {
+    #cost-table .num,
+    #partner-profit-table .num {
       font-family: 'Roboto', sans-serif;
       text-align: left;
       white-space: nowrap;
+    }
+    /* 客戶毛利表與左側排行圖並排，只有半個面板寬，標題與搜尋框同列省一行高度 */
+    .partner-profit-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+    .partner-profit-head .cost-chart-title {
+      margin-bottom: 0;
+    }
+    .partner-profit-head .form-control {
+      width: auto;
+      max-width: 200px;
+    }
+    /* 半寬放不下 .cost-totals 的四欄格線，改成一行以「‧」分隔的合計 */
+    .partner-profit-summary {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 2px solid var(--border-color);
+      font-size: 0.9rem;
+      line-height: 1.8;
+    }
+    .partner-profit-summary[hidden] {
+      display: none;
+    }
+    .partner-profit-summary .value {
+      font-family: 'Roboto', sans-serif;
+      font-weight: 700;
     }
     .cost-totals {
       display: grid;
@@ -203,24 +233,52 @@
       <button class="btn btn-primary" id="btn-cost-search">查詢</button>
     </div>
 
+    <!-- data-view 的值（charts / table）沿用不改：dashboard.js 與既有測試都以它選取面板，
+         改值只為對齊新標題並無實益。面板內容已從「兩張圖」換成「客戶毛利」。 -->
     <div class="tabs" role="tablist" aria-label="進出貨成本分析檢視">
-      <button class="tab-btn active" data-view="charts" role="tab" aria-selected="true" aria-controls="cost-panel-charts">圖表分析</button>
-      <button class="tab-btn" data-view="table" role="tab" aria-selected="false" aria-controls="cost-panel-table">明細清單</button>
+      <button class="tab-btn active" data-view="charts" role="tab" aria-selected="true" aria-controls="cost-panel-charts">客戶毛利</button>
+      <button class="tab-btn" data-view="table" role="tab" aria-selected="false" aria-controls="cost-panel-table">商品明細</button>
     </div>
 
+    <!-- 客戶毛利：左半排行圖、右半清單。原本這裡是「進出貨趨勢」與「商品毛利排行」
+         兩張圖，商品維度的毛利在下方「明細清單」已有逐商品的完整數字，
+         客戶維度則原本全站都看不到，因此這個面板改談客戶。 -->
     <div class="glass-card mb-4 cost-charts tab-panel" id="cost-panel-charts" data-view-panel="charts" role="tabpanel">
       <div class="cost-chart-block">
-        <h4 class="cost-chart-title">進出貨趨勢（按月）</h4>
-        <p class="cost-chart-empty" id="cost-trend-empty" hidden>此期間沒有進出貨紀錄</p>
+        <h4 class="cost-chart-title">客戶毛利排行</h4>
+        <p class="cost-chart-empty" id="partner-profit-chart-empty" hidden>此期間沒有客戶出貨紀錄</p>
         <div class="cost-chart-canvas">
-          <canvas id="cost-trend-chart"></canvas>
+          <canvas id="partner-profit-chart"></canvas>
         </div>
       </div>
       <div class="cost-chart-block">
-        <h4 class="cost-chart-title">商品毛利排行</h4>
-        <p class="cost-chart-empty" id="cost-ranking-empty" hidden>此期間沒有進出貨紀錄</p>
-        <div class="cost-chart-canvas">
-          <canvas id="cost-ranking-chart"></canvas>
+        <div class="partner-profit-head">
+          <h4 class="cost-chart-title">客戶毛利</h4>
+          <input type="search" id="partner-profit-search" class="form-control" placeholder="客戶／編號／統編...">
+        </div>
+        <div class="table-responsive">
+          <table id="partner-profit-table">
+            <thead>
+              <tr>
+                <th>客戶</th>
+                <th>出貨額</th>
+                <th>出貨成本</th>
+                <th>毛利</th>
+                <th>毛利率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="5" class="empty-state">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="partner-profit-summary" id="partner-profit-summary" hidden></div>
+
+        <div class="pagination">
+          <button class="btn btn-outline" id="btn-partner-profit-list-prev" disabled>上一頁</button>
+          <span id="partner-profit-list-page-info">-</span>
+          <button class="btn btn-outline" id="btn-partner-profit-list-next" disabled>下一頁</button>
         </div>
       </div>
     </div>

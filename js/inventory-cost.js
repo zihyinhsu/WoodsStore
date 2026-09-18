@@ -42,8 +42,10 @@ export async function fetchCostTotals(from, to) {
   };
 }
 
-// 按月進出貨趨勢（趨勢圖 A）。RPC 已按月分組排序，這裡只把數值轉成 Number，
-// 讓圖表層拿到乾淨的資料結構，不必再處理 Postgres numeric 回傳的字串。
+// 按月進出貨趨勢。總覽的圖表面板已改談客戶毛利（patch-026），這支目前沒有呼叫端；
+// 保留的理由同下方 fetchPeriodSummary：cost_trend 仍在正式庫裡，要把趨勢圖加回來
+// （例如放進「商品明細」分頁）時切個資料源即可，不必從頭再寫一次 RPC 與轉型。
+// RPC 已按月分組排序，這裡只把數值轉成 Number，讓圖表層拿到乾淨的資料結構。
 export async function fetchCostTrend(from, to) {
   const { data, error } = await sb.rpc('cost_trend', {
     p_from: toDateParam(from),
@@ -60,8 +62,8 @@ export async function fetchCostTrend(from, to) {
   }));
 }
 
-// 商品毛利排行（排行圖 B）。RPC 已回頭尾各 limit 名、由高到低排好，
-// 前端直接照順序畫，負毛利再於圖表層改色。
+// 商品毛利排行。同 fetchCostTrend：總覽的排行圖已換成客戶維度，這支暫無呼叫端但保留。
+// RPC 已回頭尾各 limit 名、由高到低排好，前端直接照順序畫，負毛利再於圖表層改色。
 export async function fetchCostRanking(from, to, limit = 5) {
   const { data, error } = await sb.rpc('cost_ranking', {
     p_from: toDateParam(from),
