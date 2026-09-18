@@ -1,7 +1,9 @@
 const { launch, goto, Results } = require('./helpers');
 
+// 看 getClientRects 而非元素自身的 display：父層 .container 若在列印時被隱藏，
+// section 自己仍是 block，只比對自身 display 會放過「整份對帳單印成白紙」這種狀況。
 const visibleSections = page => page.locator('.statement-section')
-  .evaluateAll(els => els.filter(e => getComputedStyle(e).display !== 'none').length);
+  .evaluateAll(els => els.filter(e => e.getClientRects().length > 0).length);
 
 (async () => {
   const r = new Results('對帳單');
@@ -67,6 +69,16 @@ const visibleSections = page => page.locator('.statement-section')
   await page.evaluate(() => document.body.classList.add('print-all'));
   r.check('列印全部輸出所有客戶', await visibleSections(page), sections);
   r.check('列印時隱藏 tabs', await page.locator('#statement-tabs').evaluate(e => getComputedStyle(e).display), 'none');
+
+  // 列印的 layout viewport 就是紙張可列印寬（直向 A4 約 700px），落在手機斷點以內。
+  // 手機樣式若沒限定 screen，合計表會在列印時被撐成滿版，與畫面上的預覽對不起來。
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.waitForTimeout(300);
+  r.check('列印時合計表維持 380px',
+    await page.locator('.statement-section.is-active .totals-table')
+      .evaluate(e => Math.round(e.getBoundingClientRect().width)), 380);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
   await page.evaluate(() => document.body.classList.remove('print-all'));
   await page.emulateMedia({ media: 'screen' });
 

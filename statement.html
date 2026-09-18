@@ -223,7 +223,10 @@
       font-size: 0.7rem;
       color: #888;
     }
-    @media (max-width: 768px) {
+    /* 必須限定 screen：Chrome 列印時的 layout viewport 就是紙張可列印寬（直向 A4 約 700px），
+       少了 screen 這段手機樣式會在列印時生效，合計表變滿版、客戶資訊改堆疊，
+       印出來與畫面上的預覽對不起來。 */
+    @media screen and (max-width: 768px) {
       /* 必須是 minmax(0, 1fr) 而非 1fr：1fr 的最小寬度是 auto（內容最寬處），
          預覽區的固定寬表格會把單欄撐到超出螢幕，連帶客戶清單一起水平溢出。
          鎖成 minmax(0, …) 才會把欄寬收回視窗寬，把溢出交還給各元素自行處理。 */
@@ -250,9 +253,12 @@
         gap: 0.75rem;
       }
     }
-    /* 對帳單欄位多，改橫向列印：每頁變寬變矮，容得下更多明細、減少換頁 */
+    /* 只設邊界、不設 size：Chrome 一旦看到 size 就會覆蓋使用者的選擇，並把列印對話框的
+       版面配置下拉停用——以前寫死 landscape，就是為了讓直向（可列印寬約 700px）不要掉進
+       手機斷點。斷點改成只在 screen 生效後，橫直向印出來都與畫面上的預覽一致，
+       方向就還給列印的人決定：差別只在每頁放得下幾列明細。 */
     @page {
-      size: landscape;
+      margin: 12mm;
     }
     @media print {
       .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop,
@@ -263,7 +269,11 @@
       .statement-layout {
         display: block !important;
       }
-      .container {
+      /* 必須是 body .container 而非 .container：style.css 也有一條列印隱藏 .container，
+         兩邊同為 !important 且 specificity 相同時比的是先後順序，而 vite build 會把
+         style.css 的 <link> 移到這段 inline <style> 之後——建置產物就會反過來由隱藏勝出，
+         列印變成一張白紙（dev 看不出來，只有正式站會中）。多一層 body 拉高 specificity 就與順序無關。 */
+      body .container {
         display: block !important;
         padding: 0 !important;
         margin: 0 !important;
