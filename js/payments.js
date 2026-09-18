@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -279,10 +279,33 @@ async function loadPayments() {
   }
 }
 
+// 商品摘要為主、單號為輔的雙行儲存格（與單據管理同一種呈現）。
+// 取不到代表品項時退成單行：沒有明細的單據會是這樣，資料庫尚未套用 patch-025 的
+// 環境也會是這樣，那時每一列頂著一個 '-' 只是噪音，單號才是不能消失的資訊。
+// subline 必須是已跳脫或已成形的 HTML（單號文字或 orderSearchLink 的連結）。
+function itemSummaryCell(topItemName, itemCount, subline) {
+  if (!topItemName) return subline;
+  return `${itemSummary(topItemName, itemCount)}
+    <span class="text-muted" style="font-size: 0.8rem; display: block;">${subline}</span>`;
+}
+
+// 一列只放得下一張單，所以顯示 view 挑出的代表單（分配金額最大那張），
+// 沖多張時在單號後補「等 N 張」，要看齊全仍是展開明細。
+// order_ids 是 order_count 的 fallback：patch-025 未套用時少了商品摘要無妨，
+// 但張數與單號不能跟著消失。
+function orderSummaryCell(payment) {
+  const count = Number(payment.order_count) || (payment.order_ids?.length ?? 0);
+  if (count === 0) return '-';
+
+  const orderNo = payment.top_order_no || String(payment.order_nos || '').split(' ')[0];
+  const label = `${escapeHtml(orderNo)}${count > 1 ? ` 等 ${count} 張` : ''}`;
+  return itemSummaryCell(payment.top_item_name, payment.top_item_count, label);
+}
+
 function renderPaymentsTable() {
   const tbody = document.querySelector('#payments-table tbody');
   if (currentPayments.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">找不到收款紀錄</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">找不到收款紀錄</td></tr>';
     return;
   }
 
@@ -294,6 +317,7 @@ function renderPaymentsTable() {
     <tr class="clickable-row" data-id="${escapeHtml(p.id)}">
       <td>${formatDate(p.payment_date)}</td>
       <td>${escapeHtml(p.payment_no)}</td>
+      <td>${orderSummaryCell(p)}</td>
       <td>${escapeHtml(p.partner_name || '-')}</td>
       <td style="font-family: 'Roboto', sans-serif;">
         ${formatCurrency(p.amount)}
@@ -412,20 +436,20 @@ async function expandPaymentDetail(paymentId, rowElement) {
       : rows.map(a => `
           <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
             <td>${formatDate(a.order_date)}</td>
-            <td>${orderSearchLink(a.order_no, a.order_date)}</td>
+            <td>${itemSummaryCell(a.top_item_name, a.item_count, orderSearchLink(a.order_no, a.order_date))}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.order_total)}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.allocated_amount)}</td>
           </tr>`).join('');
 
     rowElement.insertAdjacentHTML('afterend', `
       <tr class="detail-row">
-        <td colspan="7" style="padding: 1rem 2rem;">
+        <td colspan="8" style="padding: 1rem 2rem;">
           <h4 style="margin: 0 0 0.5rem;">本次收款的出貨單</h4>
           <table class="detail-table">
             <thead>
               <tr>
                 <th>出貨日期</th>
-                <th>出貨單號</th>
+                <th>出貨單</th>
                 <th>單據金額</th>
                 <th>本次收款</th>
               </tr>

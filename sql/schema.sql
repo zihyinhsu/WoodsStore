@@ -296,11 +296,27 @@ select
 from outstanding_order_view;
 
 -- ----------------------------------------
+-- 單據代表品項：列表用「商品摘要為主、單號為輔」時的商品來源。
+-- 取金額最大的那一項——order_items 沒有 line_no 也沒有 created_at，
+-- 「第一筆」沒有穩定順序；金額最大者既穩定，通常也是這張單的主角。
+-- 單據管理、收款主表、沖帳明細共用這一份口徑（見 patch-025），
+-- 各處一律 left join：沒有明細的單不會出現在這裡，取不到就由前端 fallback。
+-- ----------------------------------------
+create view order_top_item_view as
+select
+  oi.order_id,
+  count(*) as item_count,
+  (array_agg(pr.name order by oi.subtotal desc nulls last))[1] as top_item_name
+from order_items oi
+left join products pr on pr.id = oi.product_id
+group by oi.order_id;
+
+-- ----------------------------------------
 -- 單據搜尋（時間區間 + 關鍵字）
 -- payment_status 讀推導值；total_amount 為淨額（小計 − 折讓 + 稅），
 -- 與付款狀態、partner_balance_view、dashboard_summary 同口徑。
--- top_item_name：列表用的代表品項，取金額最大的那一項——order_items 沒有 line_no
--- 也沒有 created_at，「第一筆」沒有穩定順序（見 patch-024 口徑）。
+-- item_count 仍在這裡自己 count：這裡是 left join orders，沒有明細的單要算 0，
+-- 而 order_top_item_view 根本不會有那一列。
 -- ----------------------------------------
 create view order_search_view as
 select
@@ -323,14 +339,16 @@ select
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(pr.name || ' ' || pr.sku, ' '), '')
     as search_text,
-  (array_agg(pr.name order by oi.subtotal desc nulls last))[1] as top_item_name
+  ti.top_item_name
 from orders o
 left join partners p     on p.id = o.partner_id
 left join order_items oi on oi.order_id = o.id
 left join products pr    on pr.id = oi.product_id
 left join order_payment_summary_view ops on ops.order_id = o.id
+left join order_top_item_view ti on ti.order_id = o.id
 group by o.id, p.name, p.tax_id,
-         ops.payment_status, ops.paid_amount, ops.outstanding_amount;
+         ops.payment_status, ops.paid_amount, ops.outstanding_amount,
+         ti.top_item_name;
 
 -- ----------------------------------------
 -- 客戶應收餘額（全期間累計；as-of 版本見 get_partner_balances）
@@ -438,7 +456,15 @@ select
     || ' ' || coalesce(pt.partner_no, '')
     || ' ' || coalesce(pay.note, '')
     || ' ' || coalesce(alloc.order_nos, '')
-    as search_text
+    as search_text,
+  -- 一筆收款可能沖多張單，列表只放得下一張，因此取「分配金額最大」的那張當代表單，
+  -- 張數另給 order_count 讓前端組「等 N 張」。amount 並列時再用日期、單號決勝，
+  -- 否則翻頁重查可能換一張單顯示。
+  coalesce(alloc.order_count, 0) as order_count,
+  alloc.top_order_no,
+  alloc.top_order_date,
+  alloc.top_item_name,
+  coalesce(alloc.top_item_count, 0) as top_item_count
 from payments pay
 left join partners pt on pt.id = pay.partner_id
 left join (
@@ -446,9 +472,15 @@ left join (
     po.payment_id,
     sum(po.amount)::numeric(12,2) as allocated_amount,
     array_agg(po.order_id order by o.order_date, o.order_no) as order_ids,
-    string_agg(o.order_no, ' ' order by o.order_date, o.order_no) as order_nos
+    string_agg(o.order_no, ' ' order by o.order_date, o.order_no) as order_nos,
+    count(*) as order_count,
+    (array_agg(o.order_no   order by po.amount desc, o.order_date desc, o.order_no desc))[1] as top_order_no,
+    (array_agg(o.order_date order by po.amount desc, o.order_date desc, o.order_no desc))[1] as top_order_date,
+    (array_agg(ti.top_item_name order by po.amount desc, o.order_date desc, o.order_no desc))[1] as top_item_name,
+    (array_agg(coalesce(ti.item_count, 0) order by po.amount desc, o.order_date desc, o.order_no desc))[1] as top_item_count
   from payment_orders po
   join orders o on o.id = po.order_id
+  left join order_top_item_view ti on ti.order_id = po.order_id
   group by po.payment_id
 ) alloc on alloc.payment_id = pay.id;
 
@@ -462,10 +494,13 @@ select
   o.order_no,
   o.order_date,
   po.amount as allocated_amount,
-  ot.order_total
+  ot.order_total,
+  ti.top_item_name,
+  coalesce(ti.item_count, 0) as item_count
 from payment_orders po
 join orders o            on o.id = po.order_id
-join order_total_view ot on ot.order_id = po.order_id;
+join order_total_view ot on ot.order_id = po.order_id
+left join order_top_item_view ti on ti.order_id = po.order_id;
 
 
 -- ============================================================
