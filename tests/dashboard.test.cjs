@@ -40,14 +40,17 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   r.check('預設開始日期為本月一日', await page.inputValue('#cost-date-from'), expectedFrom);
   r.check('預設結束日期為本月月底', await page.inputValue('#cost-date-to'), expectedTo);
 
-  // 進出貨成本分析拆成兩個 tab：預設在「圖表分析」，明細清單面板此時應隱藏
-  r.check('圖表分析 tab 預設 active', await page.locator('.tab-btn[data-view="charts"]').getAttribute('aria-selected'), 'true');
-  r.truthy('圖表面板預設顯示', await page.locator('#cost-panel-charts').isVisible());
-  r.truthy('明細面板預設隱藏', !(await page.locator('#cost-panel-table').isVisible()));
+  // 進出貨成本分析拆成兩個 tab：預設在「客戶毛利」，商品明細面板此時應隱藏
+  r.check('客戶毛利 tab 預設 active', await page.locator('.tab-btn[data-view="charts"]').getAttribute('aria-selected'), 'true');
+  r.truthy('客戶毛利面板預設顯示', await page.locator('#cost-panel-charts').isVisible());
+  r.truthy('商品明細面板預設隱藏', !(await page.locator('#cost-panel-table').isVisible()));
+
+  // 舊的兩張圖已由客戶毛利取代（patch-026），不得殘留
+  r.check('趨勢圖已移除', await page.locator('#cost-trend-chart').count(), 0);
+  r.check('商品毛利排行圖已移除', await page.locator('#cost-ranking-chart').count(), 0);
 
   // 圖表：canvas 容器必須存在；有資料時 canvas 顯示、空狀態隱藏（兩者互斥）
-  r.check('趨勢圖 canvas 存在', await page.locator('#cost-trend-chart').count(), 1);
-  r.check('排行圖 canvas 存在', await page.locator('#cost-ranking-chart').count(), 1);
+  r.check('客戶毛利排行 canvas 存在', await page.locator('#partner-profit-chart').count(), 1);
 
   const chartState = async (canvasId, emptyId) => {
     const visible = await page.locator(canvasId).isVisible();
@@ -55,22 +58,19 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
     return { visible, empty, ok: visible !== empty };
   };
 
-  const trend = await chartState('#cost-trend-chart', '#cost-trend-empty');
-  const ranking = await chartState('#cost-ranking-chart', '#cost-ranking-empty');
-  r.info('趨勢圖狀態', trend.visible ? '有資料' : (trend.empty ? '空狀態' : '未知'));
-  r.info('排行圖狀態', ranking.visible ? '有資料' : (ranking.empty ? '空狀態' : '未知'));
-  r.truthy('趨勢圖有資料或顯示空狀態', trend.ok);
-  r.truthy('排行圖有資料或顯示空狀態', ranking.ok);
+  const profit = await chartState('#partner-profit-chart', '#partner-profit-chart-empty');
+  r.info('客戶毛利排行狀態', profit.visible ? '有資料' : (profit.empty ? '空狀態' : '未知'));
+  r.truthy('客戶毛利排行有資料或顯示空狀態', profit.ok);
 
   // 切換到較寬區間重查：圖表要跟著重繪，且不得殘留舊 chart（殘留會噴 console error，由 finish 把關）
   await page.fill('#cost-date-from', `${today.getFullYear()}-01-01`);
   await page.fill('#cost-date-to', expectedTo);
   await page.click('#btn-cost-search');
   await page.waitForTimeout(1500);
-  const trendAfter = await chartState('#cost-trend-chart', '#cost-trend-empty');
-  r.truthy('重查後趨勢圖仍正常（無殘留 canvas 錯誤）', trendAfter.ok);
+  const profitAfter = await chartState('#partner-profit-chart', '#partner-profit-chart-empty');
+  r.truthy('重查後排行圖仍正常（無殘留 canvas 錯誤）', profitAfter.ok);
 
-  // 切到「明細清單」tab：面板互斥切換，表格與合計才可見
+  // 切到「商品明細」tab：面板互斥切換，表格與合計才可見
   await page.click('.tab-btn[data-view="table"]');
   await page.waitForTimeout(300);
   r.truthy('切換後明細面板顯示', await page.locator('#cost-panel-table').isVisible());
@@ -94,9 +94,12 @@ const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
   await page.fill('#cost-date-to', expectedFrom);
   await page.click('#btn-cost-search');
   await page.waitForTimeout(600);
-  const toastText = await page.locator('.toast').first().innerText().catch(() => '');
-  r.info('日期驗證提示', toastText);
-  r.truthy('開始日晚於結束日被擋下', toastText.includes('開始日期不可晚於結束日期'));
+  // 取「含這句話的 toast」而非第一個：畫面上同時可能還有其他 toast（例如某支 RPC 尚未套用
+  // 而噴的載入失敗），拿 first() 會驗到不相干的那一則。
+  const toasts = await page.locator('.toast').allInnerTexts().catch(() => []);
+  r.info('日期驗證提示', toasts);
+  r.truthy('開始日晚於結束日被擋下',
+    toasts.some(t => t.includes('開始日期不可晚於結束日期')));
 
   r.finish(errors, blockedWrites);
   await browser.close();
