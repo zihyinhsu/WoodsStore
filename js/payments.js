@@ -293,12 +293,16 @@ function itemSummaryCell(topItemName, itemCount, subline) {
 // 沖多張時在單號後補「等 N 張」，要看齊全仍是展開明細。
 // order_ids 是 order_count 的 fallback：patch-025 未套用時少了商品摘要無妨，
 // 但張數與單號不能跟著消失。
+//
+// 單號直接做成連結：單張全額的收款（多數情況）展開後只是複述這一列，
+// 差別僅在多一個跳回單據的入口，那就把入口放在列上，不必為它展開。
+// 「等 N 張」留在連結外——連結只到得了代表單，包進去會像是能點開全部。
 function orderSummaryCell(payment) {
   const count = Number(payment.order_count) || (payment.order_ids?.length ?? 0);
   if (count === 0) return '-';
 
   const orderNo = payment.top_order_no || String(payment.order_nos || '').split(' ')[0];
-  const label = `${escapeHtml(orderNo)}${count > 1 ? ` 等 ${count} 張` : ''}`;
+  const label = `${orderSearchLink(orderNo, payment.top_order_date)}${count > 1 ? ` 等 ${count} 張` : ''}`;
   return itemSummaryCell(payment.top_item_name, payment.top_item_count, label);
 }
 
@@ -335,7 +339,9 @@ function renderPaymentsTable() {
 
   document.querySelectorAll('#payments-table .clickable-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
+      // 連結一併排除：出貨單欄的單號會跳到單據管理，
+      // 不攔的話離開前還會順手展開明細，回上一頁就多了一列莫名其妙的展開。
+      if (e.target.closest('button, a')) return;
       togglePaymentDetail(row.getAttribute('data-id'), row);
     });
   });
