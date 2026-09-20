@@ -443,7 +443,7 @@ function addLineItem() {
     </select>
     <div class="line-spec-unit text-muted" style="font-size: 0.9rem; padding: 0.5rem;">-</div>
     <input type="number" class="form-control line-qty" min="1" value="1" required>
-    <input type="number" class="form-control line-price price-col" min="0" step="0.01" value="0" required>
+    <input type="number" class="form-control line-price price-col" min="0" step="any" value="0" required>
     <input type="number" class="form-control line-discount price-col" min="0" max="100" value="0">
     <div class="line-subtotal price-col" style="padding: 0.5rem; font-weight: 500;">NT$ 0</div>
     <button type="button" class="btn btn-outline text-danger btn-remove-line" style="padding: 0.5rem;">✕</button>
