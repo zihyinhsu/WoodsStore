@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2 } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -653,7 +653,7 @@ async function saveOrder(status = 'confirmed') {
       items.push({
         product_id: productId,
         qty: parseInt(row.querySelector('.line-qty').value) || 0,
-        unit_price: parseFloat(row.querySelector('.line-price').value) || 0,
+        unit_price: round2(row.querySelector('.line-price').value),
         discount: parseFloat(row.querySelector('.line-discount').value) || 0
       });
     }

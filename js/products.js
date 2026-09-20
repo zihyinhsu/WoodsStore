@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink, round2 } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
 let currentProducts = [];
@@ -426,8 +426,9 @@ async function saveProduct() {
     name: document.getElementById('product-name').value,
     category: document.getElementById('product-category').value || null,
     unit: document.getElementById('product-unit').value || '個',
-    cost: parseFloat(document.getElementById('product-cost').value) || 0,
-    price: parseFloat(document.getElementById('product-price').value) || 0,
+    // round2：金額欄位允許手打小數，收斂到分再存，避免 1500.005 這種值進 numeric(12,2)
+    cost: round2(document.getElementById('product-cost').value),
+    price: round2(document.getElementById('product-price').value),
     safety_stock: parseInt(document.getElementById('product-safety-stock').value) || 0,
     location: document.getElementById('product-location').value || null,
     tax_type: document.getElementById('product-tax-type').value,
