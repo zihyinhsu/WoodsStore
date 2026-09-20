@@ -268,6 +268,14 @@ onReady(() => {
     });
   });
 
+  // 游標停在 focus 中的 input[type=number] 上捲頁面，瀏覽器會把滾輪當成上下箭頭
+  // 而改掉數值；金額欄位又以整數呈現（formatCurrency 不顯示小數），改掉了也看不出來。
+  // 因此捲動時直接讓它失焦。用 blur 而非 preventDefault：後者會連頁面都捲不動。
+  document.addEventListener('wheel', () => {
+    const el = document.activeElement;
+    if (el?.type === 'number') el.blur();
+  }, { passive: true });
+
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const openedModal = document.querySelector('.modal-overlay.active');
