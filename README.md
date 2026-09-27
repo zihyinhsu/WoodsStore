@@ -30,13 +30,9 @@ Supabase
 ## 快速開始
 
 1. 到 [Supabase](https://supabase.com) 建立專案
-2. 將 `sql/migration.sql` 與 `sql/patch-*.sql` 依序貼到 SQL Editor 執行
-   （含 `patch-017-auth.sql`，會關閉匿名存取——套用前先在 Authentication
-   建立員工帳號並關閉「Allow new users to sign up」，否則自己也會被鎖在外面）
-   （`patch-019-cost-charts.sql` 提供總覽圖表的聚合 RPC，沿用 `patch-008` 的
-   `product_movement`，務必排在 patch-008 之後；照檔名順序貼上即可）
-   （`patch-026-partner-profit.sql` 提供客戶毛利的聚合 RPC，沿用 `patch-021` 的
-   整單折讓分攤，務必排在 patch-021 之後）
+2. 將 `sql/schema.sql` 整份貼到 SQL Editor 執行——已依相依關係排序，一次跑完即為最終狀態
+   （內含身分驗證設定，會關閉匿名存取：套用前務必先在 Authentication
+   建立員工帳號並關閉「Allow new users to sign up」，否則連自己也會被鎖在外面）
 3. 複製 `.env.example` 為 `.env`，填入 Project URL 與 Publishable (anon) key
 4. `npm install` — 安裝相依套件
 5. `npm run dev` 啟動開發伺服器（http://localhost:5173），支援 HMR，存檔即更新
@@ -85,8 +81,7 @@ npm test          # 執行全部 E2E 測試
 │   ├── ui.js           # 共用元件（toast/modal/sidebar）
 │   └── *.js            # 各頁邏輯
 └── sql/
-    ├── migration.sql   # 完整 schema
-    └── patch-*.sql     # 增量補丁
+    └── schema.sql      # 完整 schema（單一檔，新環境一次跑完即最終狀態）
 ```
 
 ## 注意事項
@@ -94,10 +89,10 @@ npm test          # 執行全部 E2E 測試
 - 需登入：RLS 限 `authenticated`，所有頁面須先透過 Supabase Auth 登入（`login.html`）；帳號在 Supabase Dashboard 手動建立，並關閉自助註冊
 - 庫存採流水帳設計：單據明細即異動紀錄，不可直接改庫存數字
 - 單據不可編輯：開錯請作廢重開，保留完整追溯紀錄
-- 報表聚合一律寫在 SQL function（見 `sql/patch-008-dashboard-report.sql`），前端只取彙總結果並分頁，不把明細搬到瀏覽器計算
+- 報表聚合一律寫在 SQL function（見 `sql/schema.sql` 的「5.5 報表 RPC」段），前端只取彙總結果並分頁，不把明細搬到瀏覽器計算
 - supabase-js 走 npm 套件而非 CDN：版本鎖在 `package-lock.json`，離線可用，也不必信任第三方 CDN。升級時改 `package.json` 後重跑 `npm install`
 - 這是多頁式應用：新增 HTML 頁面時要一併補進 `vite.config.mjs` 的 `pages` 陣列，否則建置後該頁直接 404
 - 部署時上傳 `npm run build` 產出的 `dist/`
 - `VITE_` 開頭的環境變數會在 build 時內嵌進產物、瀏覽器可見，只放 publishable (anon) key，存取控制靠 RLS；`service_role` key 絕不可放
 - `.env` 不進版控，新環境請從 `.env.example` 複製；Vercel 上改完環境變數要重新部署才生效
-- 出貨成本用「確認當下寫定的成本快照」：`order_items.unit_cost` 存出貨那刻截至該日的累計進貨均價（無進貨則退回當時的 `products.cost`），見 `sql/patch-018-order-item-cost-snapshot.sql`。成本綁在該筆出貨上，不隨查詢區間漂移、也不受事後改進價影響；仍屬估算值（純累計均價、非移動平均），無進貨基礎的早期出貨會落在 fallback
+- 出貨成本用「確認當下寫定的成本快照」：`order_items.unit_cost` 存出貨那刻截至該日的累計進貨均價（無進貨則退回當時的 `products.cost`），見 `sql/schema.sql` 的 `purchase_avg_cost_asof` 與 `snapshot_order_item_costs`。成本綁在該筆出貨上，不隨查詢區間漂移、也不受事後改進價影響；仍屬估算值（純累計均價、非移動平均），無進貨基礎的早期出貨會落在 fallback
