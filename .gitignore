@@ -13,6 +13,9 @@ playwright-report/
 .env.local
 .env.*.local
 
+### 備份設定（含資料庫密碼，不進版控；範本見 scripts/backup.env.example）
+scripts/backup.env
+
 ### 工具暫存
 .omo/
 *.log
