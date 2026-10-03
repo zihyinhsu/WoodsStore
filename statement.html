@@ -142,6 +142,8 @@
       border: 1px solid var(--border-light);
       box-shadow: var(--shadow-hard);
       color: black;
+      /* 預覽與列印同字體，畫面上看到的換行與分頁才會跟印出來的一致 */
+      font-family: var(--font-kai);
     }
     .statement-header {
       text-align: center;
@@ -253,12 +255,10 @@
         gap: 0.75rem;
       }
     }
-    /* 只設邊界、不設 size：Chrome 一旦看到 size 就會覆蓋使用者的選擇，並把列印對話框的
-       版面配置下拉停用——以前寫死 landscape，就是為了讓直向（可列印寬約 700px）不要掉進
-       手機斷點。斷點改成只在 screen 生效後，橫直向印出來都與畫面上的預覽一致，
-       方向就還給列印的人決定：差別只在每頁放得下幾列明細。 */
+    /* 紙張統一是中一刀直向，size 由 style.css 的全站 @page 決定，這裡只設邊界。
+       左右 0.6in 是為了避開報表紙兩側的送紙孔；可印寬約 8.3"，8 欄明細直向就放得下。 */
     @page {
-      margin: 12mm;
+      margin: 12mm 0.6in;
     }
     @media print {
       .statement-controls, .mobile-topbar, .sidebar, .sidebar-backdrop,

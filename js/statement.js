@@ -277,8 +277,8 @@ function renderLineRows(lines) {
         <td>${escapeHtml(line.spec || '')}</td>
         <td>${escapeHtml(line.qty)}</td>
         <td>${escapeHtml(line.unit || '')}</td>
-        <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.unit_price))}</td>
-        <td style="font-family: 'Roboto', sans-serif;">${escapeHtml(formatCurrency(line.subtotal))}</td>
+        <td>${escapeHtml(formatCurrency(line.unit_price))}</td>
+        <td>${escapeHtml(formatCurrency(line.subtotal))}</td>
       </tr>
     `;
   }).join('');

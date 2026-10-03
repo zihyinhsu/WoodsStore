@@ -36,13 +36,13 @@ const { launch, goto, cellTexts, isAscending, isDescending, Results } = require(
 
   // 單據：依單據日期降冪
   await goto(page, 'orders.html');
-  const orderDates = await cellTexts(page, 'tr.clickable-row td:first-child');
+  const orderDates = await cellTexts(page, 'tr.clickable-row td:nth-child(2)');
   r.info('單據日期', orderDates);
   r.truthy('單據依日期降冪', isDescending(orderDates));
 
   // 收款：依收款日期降冪
   await goto(page, 'payments.html');
-  const paymentDates = await cellTexts(page, '#payments-table tbody tr td:first-child');
+  const paymentDates = await cellTexts(page, '#payments-table tbody tr td:nth-child(2)');
   r.info('收款日期', paymentDates);
   r.truthy('收款依日期降冪', isDescending(paymentDates));
 

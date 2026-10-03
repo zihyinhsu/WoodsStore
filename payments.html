@@ -238,6 +238,15 @@
         <table id="payments-table">
           <thead>
             <tr>
+              <th class="col-pick">
+                <label class="checkbox print-pick-all">
+                  <input type="checkbox" aria-label="全選本頁的收款單">
+                  <span class="checkbox-box">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </span>
+                  <span class="visually-hidden">選取列印</span>
+                </label>
+              </th>
               <th>日期</th>
               <th>收款單號</th>
               <th>出貨單</th>
@@ -249,7 +258,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr><td colspan="8" class="empty-state">載入中...</td></tr>
+            <tr><td colspan="9" class="empty-state">載入中...</td></tr>
           </tbody>
         </table>
       </div>

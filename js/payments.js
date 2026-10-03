@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
 import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
 
@@ -13,6 +13,7 @@ let orderFilterId = null;
 let orderFilterNo = null;
 let orderFilterPartnerId = null;
 let autoExpanded = false;
+let printSelection = null;
 // 非 null 代表正在編輯一筆舊版沖帳留下的收款，整個出貨單區塊唯讀（見 setLegacyLock）。
 let legacyPayment = null;
 
@@ -47,6 +48,12 @@ const methodMap = {
 
 async function init() {
   setupResponsiveTable('#payments-table');
+  printSelection = setupPrintSelection({
+    table: '#payments-table',
+    printLabel: '列印收款單',
+    getItem: id => currentPayments.find(p => p.id === id),
+    onPrint: printPayments
+  });
   setupResponsiveTable('#balance-table');
 
   const urlParams = new URLSearchParams(window.location.search);
@@ -309,7 +316,7 @@ function orderSummaryCell(payment) {
 function renderPaymentsTable() {
   const tbody = document.querySelector('#payments-table tbody');
   if (currentPayments.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">找不到收款紀錄</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">找不到收款紀錄</td></tr>';
     return;
   }
 
@@ -319,6 +326,7 @@ function renderPaymentsTable() {
     const unallocated = Number(p.unallocated_amount) || 0;
     return `
     <tr class="clickable-row" data-id="${escapeHtml(p.id)}">
+      ${printSelection.checkboxCell(p.id)}
       <td>${formatDate(p.payment_date)}</td>
       <td>${escapeHtml(p.payment_no)}</td>
       <td>${orderSummaryCell(p)}</td>
@@ -341,7 +349,7 @@ function renderPaymentsTable() {
     row.addEventListener('click', (e) => {
       // 連結一併排除：出貨單欄的單號會跳到單據管理，
       // 不攔的話離開前還會順手展開明細，回上一頁就多了一列莫名其妙的展開。
-      if (e.target.closest('button, a')) return;
+      if (e.target.closest('button, a, .col-pick')) return;
       togglePaymentDetail(row.getAttribute('data-id'), row);
     });
   });
@@ -350,7 +358,7 @@ function renderPaymentsTable() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const payment = currentPayments.find(p => p.id === e.target.getAttribute('data-id'));
-      if (payment) printPayment(payment);
+      if (payment) printPayments([payment]);
     });
   });
 
@@ -449,7 +457,7 @@ async function expandPaymentDetail(paymentId, rowElement) {
 
     rowElement.insertAdjacentHTML('afterend', `
       <tr class="detail-row">
-        <td colspan="8" style="padding: 1rem 2rem;">
+        <td colspan="9" style="padding: 1rem 2rem;">
           <h4 style="margin: 0 0 0.5rem;">本次收款的出貨單</h4>
           <table class="detail-table">
             <thead>
@@ -822,8 +830,14 @@ async function savePayment() {
   }
 }
 
-async function printPayment(payment) {
-  const printArea = document.getElementById('print-area');
+// 每張收款單各自查客戶、餘額與沖帳明細（查詢條件都綁在單張收款上），多張時並行撈。
+// 單張載入失敗時 paymentSlipHtml 會提示並照樣組版（缺的欄位留空），所以一律有開出列印。
+async function printPayments(payments) {
+  printSlips(await Promise.all(payments.map(paymentSlipHtml)));
+  return true;
+}
+
+async function paymentSlipHtml(payment) {
 
   let partner = null;
   let balance = null;
@@ -877,14 +891,14 @@ async function printPayment(payment) {
           <td>${escapeHtml(line.spec || '')}</td>
           <td>${escapeHtml(line.qty)}</td>
           <td>${escapeHtml(line.unit || '')}</td>
-          <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.unit_price)}</td>
-          <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(line.subtotal)}</td>
+          <td>${formatCurrency(line.unit_price)}</td>
+          <td>${formatCurrency(line.subtotal)}</td>
         </tr>
       `;
     }).join('');
 
     detailsHtml = `
-      <table style="margin-bottom: 2rem;">
+      <table>
         <thead>
           <tr>
             <th>日期</th><th>單號</th><th>品名</th><th>規格</th>
@@ -895,14 +909,14 @@ async function printPayment(payment) {
           ${rowsHtml}
           <tr>
             <td colspan="7" style="text-align: right; font-weight: bold;">明細合計</td>
-            <td style="font-weight: bold; font-family: 'Roboto', sans-serif;">${formatCurrency(totalSubtotal)}</td>
+            <td style="font-weight: bold;">${formatCurrency(totalSubtotal)}</td>
           </tr>
         </tbody>
       </table>
     `;
   }
 
-  printArea.innerHTML = `
+  return `
     <div class="print-doc-header">
       <h1>藝境裝潢材料行</h1>
       <h2>收款單</h2>
@@ -931,12 +945,12 @@ async function printPayment(payment) {
           <td>${formatDate(payment.payment_date)}</td>
           <td>${methodMap[payment.method] || escapeHtml(payment.method)}</td>
           <td>${escapeHtml(payment.note || '')}</td>
-          <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(payment.amount)}</td>
+          <td>${formatCurrency(payment.amount)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
         <tr>
           <td colspan="3" style="text-align: right; font-weight: bold;">收款後應收餘額</td>
-          <td style="font-weight: bold; font-family: 'Roboto', sans-serif;">${formatCurrency(balance)}</td>
+          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
         </tr>` : ''}
       </tbody>
     </table>
@@ -944,8 +958,6 @@ async function printPayment(payment) {
       <div>經手人簽名：<span class="signature-line"></span></div>
     </div>
   `;
-
-  window.print();
 }
 
 function updatePagination() {

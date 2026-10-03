@@ -2,7 +2,7 @@
 //
 // 這裡只放會操作 DOM 或瀏覽器狀態的共用元件。
 // 純函式（格式化、日期換算、數值處理）請放 utils.js。
-import { totalPages } from './utils.js';
+import { totalPages, escapeHtml } from './utils.js';
 import { sb } from './supabase.js';
 
 // 各頁分頁列的樣板完全一致，只差資料筆數的單位文案，
@@ -253,6 +253,113 @@ export function onReady(fn) {
   } else {
     fn();
   }
+}
+
+// 出貨單／收款單印在中一刀複寫三聯報表紙上，每張單佔半頁、一頁兩張（尺寸見 style.css 的 .print-slip）。
+// 每張單只印一次：三聯是複寫紙自己壓出來的，程式重複印反而會浪費一整格。
+export function printSlips(slipHtmls) {
+  const printArea = document.getElementById('print-area');
+  printArea.innerHTML = slipHtmls
+    .map(html => `<section class="print-slip">${html}</section>`)
+    .join('');
+  window.print();
+}
+
+const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
+
+// 列表勾選多張單一起印，湊滿一頁兩格才不浪費報表紙。
+// 勾選欄獨立放在最左、列印鈕放在表格上方的選取工具列（有勾選才出現），
+// 不和每列的編輯／作廢擠在一起：勾選是「選這一列」，按鈕是「立刻執行」，混放容易誤點。
+//
+// 選取存在 Map 而非讀 DOM：換頁、改搜尋條件後表身會重繪，勾過的單仍要保留，跨頁也能湊成一頁；
+// 也因此工具列要有「清除選取」，否則得翻回每一頁逐一取消。
+// 表頭第一格要放 .print-pick-all（見 orders.html），各列第一格用回傳的 checkboxCell 產生。
+export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
+  const tableEl = document.querySelector(table);
+  const tbody = tableEl.tBodies[0];
+  const selectAll = tableEl.querySelector('.print-pick-all input');
+  const selected = new Map();
+
+  const bar = document.createElement('div');
+  bar.className = 'selection-bar';
+  bar.hidden = true;
+  bar.innerHTML = `
+    <span class="selection-bar-count"></span>
+    <div class="selection-bar-actions">
+      <button type="button" class="btn btn-outline" id="btn-clear-selection">清除選取</button>
+      <button type="button" class="btn btn-primary" id="btn-print-selected">${escapeHtml(printLabel)}</button>
+    </div>`;
+  tableEl.closest('.table-responsive').before(bar);
+  const countEl = bar.querySelector('.selection-bar-count');
+
+  const pageInputs = () => [...tbody.querySelectorAll('.print-pick input')];
+
+  const toggle = (input, on) => {
+    input.checked = on;
+    const id = input.getAttribute('data-id');
+    const item = on && getItem(id);
+    if (item) selected.set(id, item);
+    else selected.delete(id);
+  };
+
+  const sync = () => {
+    const n = selected.size;
+    bar.hidden = n === 0;
+    // 一頁中一刀放兩張單，放紙前就知道要準備幾張
+    countEl.textContent = `已選 ${n} 張，需中一刀 ${Math.ceil(n / 2)} 頁`;
+
+    const inputs = pageInputs();
+    const checked = inputs.filter(i => i.checked).length;
+    selectAll.disabled = inputs.length === 0;
+    selectAll.checked = inputs.length > 0 && checked === inputs.length;
+    selectAll.indeterminate = checked > 0 && checked < inputs.length;
+  };
+
+  tbody.addEventListener('change', (e) => {
+    const input = e.target.closest('.print-pick input');
+    if (!input) return;
+    toggle(input, input.checked);
+    sync();
+  });
+
+  // 用 click 而非 change：半選（indeterminate）狀態下要能一次全選（同對帳單的全選）
+  selectAll.addEventListener('click', () => {
+    const inputs = pageInputs();
+    const on = !inputs.every(i => i.checked);
+    inputs.forEach(i => toggle(i, on));
+    sync();
+  });
+
+  const clearSelection = () => {
+    selected.clear();
+    pageInputs().forEach(i => { i.checked = false; });
+    sync();
+  };
+
+  bar.querySelector('#btn-clear-selection').addEventListener('click', clearSelection);
+
+  // 印完就清除，下一批才不會混進已經印過的單。window.print() 會等列印對話框關閉才返回，
+  // 所以這裡對話框已經關了——但瀏覽器分不出是按了列印還是取消，取消也會清除。
+  // onPrint 回傳 false（載入資料失敗、根本沒開列印）時保留選取，讓使用者直接重試。
+  bindSubmitOnce('btn-print-selected', async () => {
+    if (await onPrint([...selected.values()])) clearSelection();
+  });
+
+  // 表身由各頁 innerHTML 重繪（分頁、搜尋），重繪後表頭全選要跟著本頁的勾選狀態更新
+  new MutationObserver(sync).observe(tbody, { childList: true });
+  sync();
+
+  return {
+    // 不能列印的列（進貨、作廢…）也要輸出空格，欄位才對得齊
+    checkboxCell: (id, selectable = true) => selectable
+      ? `<td class="col-pick">
+          <label class="checkbox print-pick">
+            <input type="checkbox" data-id="${escapeHtml(id)}" aria-label="選取列印" ${selected.has(id) ? 'checked' : ''}>
+            <span class="checkbox-box">${CHECK_ICON}</span>
+          </label>
+        </td>`
+      : '<td class="col-pick"></td>'
+  };
 }
 
 // Setup modal close buttons

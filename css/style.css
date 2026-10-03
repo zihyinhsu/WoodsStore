@@ -17,6 +17,9 @@
   --danger: #c53030;
   
   --border-radius: 0;
+
+  /* 列印單與對帳單預覽用的標楷體：DFKai-SB 是 Windows 的字型名稱、BiauKai 是 macOS 的 */
+  --font-kai: "DFKai-SB", "BiauKai", "標楷體", serif;
   --transition: all 0.2s ease;
 }
 
@@ -450,14 +453,76 @@ html.sidebar-collapsed .chevron-icon {
   opacity: 1;
 }
 
+/* 半選（全選框底下只勾了一部分）：沒有這段會跟「未勾」長得一樣，看不出已經有勾選。
+   以橫線取代勾勾，與「全部勾選」區分。 */
+.checkbox input:indeterminate + .checkbox-box {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.checkbox input:indeterminate + .checkbox-box::after {
+  content: '';
+  width: 8px;
+  height: 2px;
+  background: white;
+}
+
+.checkbox input:indeterminate + .checkbox-box svg {
+  display: none;
+}
+
 .checkbox input:focus-visible + .checkbox-box {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
+/* 只給螢幕閱讀器的文字：表頭勾選欄靠它提供欄名，卡片化時的 data-label 也從這裡取 */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Tables */
 .table-responsive {
   overflow-x: auto;
+}
+
+/* 列表勾選列印（setupPrintSelection）：勾選欄固定窄寬置左，與操作按鈕分開 */
+.col-pick {
+  width: 3rem;
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--border-color);
+  border-left: 6px solid var(--primary);
+  background: white;
+}
+
+/* 有 display: flex 時 hidden 屬性會被蓋掉，必須顯式宣告 */
+.selection-bar[hidden] {
+  display: none;
+}
+
+.selection-bar-count {
+  font-weight: 700;
+}
+
+.selection-bar-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
 table {
@@ -998,6 +1063,11 @@ tbody tr.clickable-row {
     content: none;
   }
 
+  /* 不能列印的列（進貨、作廢）勾選格是空的，卡片上只會剩一個孤零零的欄名，直接收起 */
+  .table--cards td.col-pick:empty {
+    display: none;
+  }
+
   /* #cost-table 與 #balance-table 的 td 各有 ID／頁面權重的自訂 padding
      （balance-table 的來自 payments.html inline style），會蓋掉上面的
      padding-left，導致欄名與內容重疊；用同帶 ID 的選擇器把讓位的 padding 補回。 */
@@ -1008,11 +1078,31 @@ tbody tr.clickable-row {
 }
 
 /* Print Styles */
+/* 所有列印單統一印在中一刀報表紙（9.5" × 11"，含兩側送紙孔）。寫死 size 會讓 Chrome 鎖住
+   列印對話框的紙張與方向選項，這是刻意的：紙張由店內的報表紙決定，不該每次讓人重選。 */
+@page {
+  size: 9.5in 11in;
+}
+/* 出貨單／收款單是複寫三聯紙，一頁放兩張單，靠每張固定半頁高度讓第二張剛好從中間撕線開始，
+   所以頁邊距必須歸零、改由 .print-slip 的 padding 留白；否則半頁高度要扣掉瀏覽器預設邊距，
+   撕線位置就會跟著使用者的邊距設定跑掉。用具名頁面是為了不影響對帳單自己的 @page 邊距。 */
+@page slip {
+  margin: 0;
+}
 @media print {
+  /* 具名頁面必須套在整份文件（html）而非 .print-slip：瀏覽器擴充功能（實測是沉浸式翻譯）會在
+     body 之後插入自己的元素，它不屬於 slip 頁面，頁面類型一換 Chrome 就強制分頁，
+     只印一張單時會多吐一張空白頁。整份文件都在 slip 上，就不會有頁面類型切換。
+     以 :has(#print-area) 限定，對帳單沒有 #print-area，維持它自己的頁面設定。 */
+  html:has(#print-area) {
+    page: slip;
+  }
+  /* 列印不需要撐滿視窗；列印時 vh 的換算基準又因瀏覽器而異，留著會讓 body 高度難以預測 */
   body {
     background: white;
     padding: 0 !important;
     margin: 0;
+    min-height: 0;
   }
   .sidebar, .mobile-topbar, .container, .modal-overlay, .toast-container {
     display: none !important;
@@ -1021,15 +1111,25 @@ tbody tr.clickable-row {
     display: block !important;
     width: 100%;
     color: black;
+    font-family: var(--font-kai);
+    font-size: 10.5pt;
+  }
+  /* min-height 而非 height：明細多到半頁放不下時讓這張單自然長高，
+     break-inside: avoid 會把下一張推到新的一頁，不會從中間被切開。 */
+  .print-slip {
+    min-height: 5.5in;
+    /* 左右 0.6in 避開兩側送紙孔 */
+    padding: 0.3in 0.6in;
+    break-inside: avoid;
   }
   #print-area table {
     width: 100%;
     border-collapse: collapse;
-    margin-bottom: 2rem;
+    margin-bottom: 0.5rem;
   }
   #print-area th, #print-area td {
     border: 1px solid black;
-    padding: 0.5rem;
+    padding: 0.15rem 0.4rem;
     text-align: left;
   }
   #print-area th {
@@ -1038,28 +1138,34 @@ tbody tr.clickable-row {
     print-color-adjust: exact;
   }
   #print-area h1, #print-area h2 {
-    text-align: center;
-    margin-bottom: 0.5rem;
+    justify-content: center;
+    margin-bottom: 0.15rem;
+  }
+  #print-area h1 {
+    font-size: 16pt;
+  }
+  #print-area h2 {
+    font-size: 13pt;
   }
   #print-area h1::before, #print-area h2::before {
     display: none;
   }
   .print-doc-header {
     text-align: center;
-    margin-bottom: 2rem;
+    margin-bottom: 0.5rem;
   }
   .print-info-box {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 1.5rem;
+    margin-bottom: 0.5rem;
     border: 1px solid black;
-    padding: 1rem;
+    padding: 0.3rem 0.6rem;
   }
   .print-info-box p {
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.1rem;
   }
   .print-footer {
-    margin-top: 3rem;
+    margin-top: 1rem;
     display: flex;
     justify-content: flex-end;
   }

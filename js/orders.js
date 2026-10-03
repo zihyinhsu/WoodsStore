@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2 } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, groupBy } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -11,6 +11,7 @@ let partnersCache = [];
 let editingOrderId = null;
 let editingOrderStatus = null;
 let pendingAutoExpand = false;
+let printSelection = null;
 
 // DOM Elements
 const searchDateFrom = document.getElementById('search-date-from');
@@ -24,6 +25,12 @@ const btnNextPage = document.getElementById('btn-next-page');
 
 async function init() {
   setupResponsiveTable('#orders-table');
+  printSelection = setupPrintSelection({
+    table: '#orders-table',
+    printLabel: '列印出貨單',
+    getItem: id => currentOrders.find(o => o.id === id),
+    onPrint: printShippingOrders
+  });
 
   // Parse URL parameters
   const urlParams = new URLSearchParams(window.location.search);
@@ -152,7 +159,7 @@ function renderOrdersTable() {
            找不到單號 ${escapeHtml(searchKeyword.value)}，該單據可能已被刪除或單號已變更。
          </div>`
       : '';
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">找不到單據${hint}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">找不到單據${hint}</td></tr>`;
     return;
   }
 
@@ -190,6 +197,7 @@ function renderOrdersTable() {
 
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
+      ${printSelection.checkboxCell(order.id, order.type === 'sale' && order.status !== 'void')}
       <td>${formatDate(order.order_date)}</td>
       <td>
         ${itemSummary(order.top_item_name, order.item_count)}
@@ -220,6 +228,7 @@ function renderOrdersTable() {
       if (e.target.classList.contains('btn-void')) return;
       if (e.target.classList.contains('btn-confirm')) return;
       if (e.target.classList.contains('btn-edit')) return;
+      if (e.target.closest('.col-pick')) return;
       if (e.target.closest('.payment-link')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
     });
@@ -285,7 +294,7 @@ async function toggleOrderDetail(orderId, rowElement) {
 
     const detailHtml = `
       <tr class="detail-row">
-        <td colspan="7" style="padding: 1rem 2rem;">
+        <td colspan="8" style="padding: 1rem 2rem;">
           <div class="d-flex justify-between align-center mb-2">
             <h4 style="margin: 0;">單據明細</h4>
             ${isSale ? `<button class="btn btn-outline btn-print-shipping" data-id="${orderId}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印出貨單</button>` : ''}
@@ -321,7 +330,7 @@ async function toggleOrderDetail(orderId, rowElement) {
     if (isSale) {
       const printBtn = rowElement.nextElementSibling.querySelector('.btn-print-shipping');
       if (printBtn) {
-        printBtn.addEventListener('click', () => printShippingOrder(order, data));
+        printBtn.addEventListener('click', () => printShippingOrders([order]));
       }
     }
   } catch (error) {
@@ -330,16 +339,37 @@ async function toggleOrderDetail(orderId, rowElement) {
   }
 }
 
-async function printShippingOrder(order, items) {
-  const printArea = document.getElementById('print-area');
+// 明細與客戶資料一次撈齊再組版：多張一起印時逐張查詢會慢到列印對話框遲遲不出來。
+// 回傳是否有開出列印，供勾選列印判斷要不要清除選取（見 ui.js 的 setupPrintSelection）。
+async function printShippingOrders(orders) {
+  const orderIds = orders.map(o => o.id);
+  const partnerIds = [...new Set(orders.map(o => o.partner_id).filter(Boolean))];
 
-  let partner = null;
-  if (order.partner_id) {
-    const { data } = await sb.from('partners').select('*').eq('id', order.partner_id).single();
-    partner = data;
+  try {
+    const [itemsRes, partnersRes] = await Promise.all([
+      sb.from('order_items').select('*, products(name, spec, unit)').in('order_id', orderIds),
+      partnerIds.length > 0
+        ? sb.from('partners').select('*').in('id', partnerIds)
+        : Promise.resolve({ data: [], error: null })
+    ]);
+    if (itemsRes.error) throw itemsRes.error;
+    if (partnersRes.error) throw partnersRes.error;
+
+    const itemsByOrder = groupBy(itemsRes.data || [], 'order_id');
+    const partnersById = new Map((partnersRes.data || []).map(p => [p.id, p]));
+
+    printSlips(orders.map(order =>
+      shippingSlipHtml(order, itemsByOrder.get(order.id) || [], partnersById.get(order.partner_id))));
+    return true;
+  } catch (error) {
+    console.error('Error loading data for print:', error);
+    showToast('載入列印資料失敗：' + toErrorMessage(error), 'error');
+    return false;
   }
+}
 
-  printArea.innerHTML = `
+function shippingSlipHtml(order, items, partner) {
+  return `
     <div class="print-doc-header">
       <h1>藝境裝潢材料行</h1>
       <h2>出貨單</h2>
@@ -382,8 +412,6 @@ async function printShippingOrder(order, items) {
       </div>
     </div>
   `;
-
-  window.print();
 }
 
 async function confirmOrder(orderId) {
