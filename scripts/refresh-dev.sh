@@ -6,12 +6,12 @@
 #    它是破壞性操作，且不可逆。因此本檔的防護比其他腳本都嚴格。
 #
 # 先說清楚定位：這不是備份，是「拿正式資料刷新測試環境」。
-#   - 真正的備份是 NAS 上那些 prod-*.sql.gz（獨立檔案、永久保留）。
+#   - 真正的備份是 S3（NAS 上的 rustfs）裡那些 prod-*.sql.gz（獨立檔案、保留 7 天）。
 #   - dev 庫是「可被任意覆寫的工作副本」，它下一次刷新就會被蓋掉，
-#     所以不能當成備份的第二份。真正的兩份是：NAS 檔案 + Supabase 自家備份。
+#     所以不能當成備份的第二份。真正的兩份是：S3 上的檔案 + Supabase 自家備份。
 #
 # 用法（正常由 nas-daily.sh 呼叫）：
-#   DEV_DB_URL='postgresql://...' ARCHIVE=/volume1/backup/inventory/prod-xxx.sql.gz \
+#   DEV_DB_URL='postgresql://...' ARCHIVE=./work/prod-xxx.sql.gz \
 #   CONFIRM_OVERWRITE_DEV=yes ./scripts/refresh-dev.sh
 # ============================================================
 set -euo pipefail

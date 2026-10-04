@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
 # ============================================================
-# 備份正式資料庫到 NAS（永久保留）
+# 備份一個資料庫（正式或 dev）到 S3（NAS 上的 rustfs）
 #
-# 由 nas-daily.sh 呼叫，也可單獨執行做驗證。
+# 由 nas-daily.sh 呼叫，正式庫與 dev 各呼叫一次；也可單獨執行做驗證。
+#
+# 流程：pg_dump → 在本機暫存目錄驗證、壓縮 → 上傳 S3 並核對大小。
+# 驗證一定要在本機做（要逐行檢查 dump 內容），所以檔案會先落地在
+# STAGING_DIR；上傳成功後由 nas-daily.sh 刪除。
+# 單獨執行本腳本時本機那份會留著，需要時請手動清掉。
 #
 # 為什麼用 docker 跑 pg_dump 而不在 NAS 裝 PostgreSQL：
 #   Synology 套件中心的 PostgreSQL 版本不一定跟 Supabase 一致，而
 #   pg_dump 拒絕匯出比自己新的伺服器。改用 docker 就能精準取用
 #   與伺服器同主版本的 pg_dump，且版本由 detect_pg_major 自動偵測。
 #
-# 保留策略：永久保留（使用者指定）。這支腳本不刪任何東西——
-# 備份腳本一旦有刪除邏輯，寫錯一次就會把所有歷史一起帶走。
-# 要清理時請手動，並先確認要留的那幾份還在。
+# 這支腳本只新增、不刪除 S3 上的東西。保留 7 天的清理由 nas-daily.sh
+# 在「本次備份已上傳成功」之後另外呼叫 s3_prune_old，刻意不放在這裡：
+# 單獨執行本腳本做驗證時，不該順手刪掉任何歷史備份。
 #
 # 用法：
-#   PROD_DB_URL='postgresql://...' BACKUP_DIR=/volume1/backup/inventory \
-#     ./scripts/backup-prod.sh
+#   DB_URL='postgresql://...' DB_LABEL=prod STAGING_DIR=./work \
+#   S3_ENDPOINT=http://127.0.0.1:9000 S3_BUCKET=yijing S3_PREFIX=inventory \
+#   S3_ACCESS_KEY=... S3_SECRET_KEY=... \
+#     ./scripts/backup-db.sh
 # ============================================================
 set -euo pipefail
 
@@ -25,19 +32,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib-common.sh
 . "${SCRIPT_DIR}/lib-common.sh"
 
-: "${PROD_DB_URL:?缺少 PROD_DB_URL（正式庫的 Session pooler 連線字串）}"
-: "${BACKUP_DIR:?缺少 BACKUP_DIR（NAS 上存放備份的目錄，例如 /volume1/backup/inventory）}"
+: "${DB_URL:?缺少 DB_URL（要備份的資料庫的 Session pooler 連線字串）}"
+: "${DB_LABEL:?缺少 DB_LABEL（prod 或 dev，會成為檔名開頭）}"
+: "${STAGING_DIR:?缺少 STAGING_DIR（本機暫存目錄，備份上傳 S3 前先落地在這裡）}"
 
+# 只接受這兩個值：DB_LABEL 會成為檔名開頭，而 s3_prune_old 是靠
+# 「<label>-日期時間.sql.gz」這個固定格式決定要刪哪些。
+# 放任自由字串的話，打錯一個字就會產生清理認不得、永遠不會被刪的檔案。
+case "${DB_LABEL}" in
+  prod|dev) ;;
+  *) echo "DB_LABEL 只能是 prod 或 dev，收到：${DB_LABEL}" >&2; exit 1 ;;
+esac
+
+require_s3_config
 require_docker
 
 # 時間一律用本地時間：這是給人看的檔名，材料行的人講「9月27號那份」
 # 指的是台北時間。NAS 時區固定，不像雲端 runner 有 UTC 落差問題。
 TIMESTAMP="$(date '+%Y-%m-%d_%H%M%S')"
-ARCHIVE="${BACKUP_DIR}/prod-${TIMESTAMP}.sql.gz"
+ARCHIVE="${STAGING_DIR}/${DB_LABEL}-${TIMESTAMP}.sql.gz"
 
-mkdir -p "${BACKUP_DIR}"
+mkdir -p "${STAGING_DIR}"
 
-WORK_DIR="$(mktemp -d)"
+# 建在 STAGING_DIR 底下而不是預設的 /tmp：DSM 的 /tmp 是 tmpfs，吃的是記憶體。
+# 這台 NAS 只有 4GB、閒置可用約 1.2GB，未壓縮的 dump 放進去等於直接佔用 RAM，
+# 資料量長大後可能把整台拖垮（NAS 曾因記憶體不足卡死過）。
+WORK_DIR="$(mktemp -d "${STAGING_DIR}/.tmp.XXXXXX")"
 cleanup() {
   # dump 是未加密的完整營業資料，不留在暫存目錄。
   rm -rf "${WORK_DIR}"
@@ -46,10 +66,10 @@ trap cleanup EXIT
 
 DUMP_FILE="${WORK_DIR}/dump.sql"
 
-echo "=== 備份正式庫 $(date '+%F %T') ==="
-echo "來源：$(mask_db_url "${PROD_DB_URL}")"
+echo "=== 備份 ${DB_LABEL} 庫 $(date '+%F %T') ==="
+echo "來源：$(mask_db_url "${DB_URL}")"
 
-PG_MAJOR="$(detect_pg_major "${PROD_DB_URL}")"
+PG_MAJOR="$(detect_pg_major "${DB_URL}")"
 echo "伺服器 PostgreSQL 主版本：${PG_MAJOR}（使用 postgres:${PG_MAJOR}-alpine 的 pg_dump）"
 
 # ------------------------------------------------------------
@@ -70,7 +90,7 @@ echo "伺服器 PostgreSQL 主版本：${PG_MAJOR}（使用 postgres:${PG_MAJOR}
 # anon / authenticated / service_role 是每個 Supabase 專案都有的內建角色，
 # 還原到任何 Supabase 專案都對得上。
 #
-# 備份檔刻意不含 DROP 指令（不加 --clean）：這份檔案是永久保存的歷史，
+# 備份檔刻意不含 DROP 指令（不加 --clean）：這份檔案是保留下來的歷史，
 # 「清空目標」是還原時的決策，由 refresh-dev.sh 在還原當下決定，
 # 不該內建在備份檔裡讓人一不小心 psql 灌下去就把目標清空。
 # ------------------------------------------------------------
@@ -78,7 +98,7 @@ echo "--- 匯出中 ---"
 docker run --rm -i \
   -e PGCONNECT_TIMEOUT=30 \
   "postgres:${PG_MAJOR}-alpine" \
-  pg_dump "${PROD_DB_URL}" \
+  pg_dump "${DB_URL}" \
     --schema=public \
     --no-owner \
     --format=plain \
@@ -112,7 +132,8 @@ if [ -n "${MISSING}" ]; then
   exit 1
 fi
 
-# 正式庫不可能沒有任何一筆資料。沒有 COPY 代表只匯出了結構，
+# pg_dump 對每張表都會輸出 COPY 區塊（空表也有），沒有任何 COPY
+# 代表只匯出了結構，通常是權限不足讀不到資料。
 # 那種備份還原後是一個空系統，比沒有備份更容易誤判。
 if ! grep -q '^COPY ' "${DUMP_FILE}"; then
   echo "備份中止：dump 沒有任何 COPY 區塊（只有結構、沒有資料）" >&2
@@ -136,8 +157,9 @@ done
 
 # ------------------------------------------------------------
 # 壓縮並落地
-# 先寫到暫存再搬進備份目錄：中途失敗不會在備份目錄留下半截檔案，
-# 讓「目錄裡的每個檔都是完整的」這件事成立。
+# 先寫到 mktemp 再搬進 STAGING_DIR：中途失敗不會留下半截檔案。
+# nas-daily.sh 會把 STAGING_DIR 裡殘留的 prod-*／dev-*.sql.gz 當成
+# 「上次沒傳成功」補傳，半截檔案若混進去就會被當成正常備份傳上 S3。
 # ------------------------------------------------------------
 gzip -c "${DUMP_FILE}" > "${WORK_DIR}/archive.sql.gz"
 
@@ -154,10 +176,17 @@ fi
 
 mv "${WORK_DIR}/archive.sql.gz" "${ARCHIVE}"
 
-echo "=== 備份完成 ==="
-echo "檔案：${ARCHIVE}"
-echo "大小：$(du -h "${ARCHIVE}" | cut -f1)"
-echo "目錄現有備份份數：$(find "${BACKUP_DIR}" -maxdepth 1 -name 'prod-*.sql.gz' | wc -l | tr -d '[:space:]')"
+# 讓呼叫方（nas-daily.sh）知道剛產出哪一份：上傳成功後要刪本機那份，
+# 正式庫那份還可能拿去刷新 dev。
+echo "${ARCHIVE}" > "${STAGING_DIR}/.latest-${DB_LABEL}"
 
-# 讓呼叫方（nas-daily.sh）知道剛產出哪一份，用於接續還原到 dev。
-echo "${ARCHIVE}" > "${BACKUP_DIR}/.latest"
+# ------------------------------------------------------------
+# 上傳 S3
+# 失敗時整支腳本失敗（排程通知信會看到），本機那份保留，
+# 下次 nas-daily.sh 執行時會自動補傳。
+# ------------------------------------------------------------
+echo "--- 上傳 S3 ---"
+s3_upload_verified "${ARCHIVE}"
+
+echo "=== 備份完成 ==="
+echo "大小：$(du -h "${ARCHIVE}" | cut -f1)"
