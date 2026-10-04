@@ -139,11 +139,35 @@ RESTORE_SQL="${WORK_DIR}/restore.sql"
 # if not exists 讓這一句成為 no-op。
 #
 # dump 自帶 CREATE SCHEMA public，這裡已先建好，改寫成 IF NOT EXISTS。
+#
+# ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin 要刪掉：連線用的 postgres
+# 不是 supabase_admin 的成員，執行會報 permission denied to change default
+# privileges，整筆還原因此回滾。少了它只影響 supabase_admin 日後新建的物件，
+# 本專案的表與函式都由 postgres 建立，FOR ROLE postgres 的那幾句照常還原。
+#
+# ensure_rls 要在還原後補建：它是 Supabase 替新表自動開 RLS 的事件觸發器，
+# 依附在 public.rls_auto_enable() 上，drop schema cascade 會連帶刪掉；
+# 但事件觸發器屬於整個資料庫而非 schema，--schema=public 的 dump 不會帶回來。
+# 用 DO 區塊判斷：dump 裡沒有這支函式（舊專案）就不建，已存在也不重複建。
 {
   echo 'drop schema if exists public cascade;'
   echo 'create schema public;'
   echo 'create extension if not exists pg_trgm with schema public;'
-  gzip -dc "${ARCHIVE}" | sed 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/'
+  gzip -dc "${ARCHIVE}" \
+    | sed 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/' \
+    | sed '/^ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin /d'
+  cat <<'SQL'
+do $$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null
+     and not exists (select 1 from pg_event_trigger where evtname = 'ensure_rls') then
+    create event trigger ensure_rls on ddl_command_end
+      when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO')
+      execute function public.rls_auto_enable();
+  end if;
+end
+$$;
+SQL
 } > "${RESTORE_SQL}"
 
 echo "--- 還原中（單一交易，失敗會整筆回滾）---"
