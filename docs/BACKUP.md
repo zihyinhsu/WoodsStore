@@ -32,7 +32,7 @@ Hyper Backup 等方式把 bucket 的資料同步到 NAS 以外的地方。
 
 | 檔案 | 用途 |
 |---|---|
-| `scripts/nas-daily.sh` | 排程器唯一要呼叫的入口，串起所有步驟 |
+| `scripts/nas-daily.sh` | 串起所有步驟；NAS 上由 `/volume1/scripts/yijing-backup.sh` 轉呼叫 |
 | `scripts/backup-db.sh` | 備份一個庫（prod 或 dev）並上傳 S3，含完整性驗證 |
 | `scripts/fetch-backup.sh` | 列出或下載 S3 上的備份，還原前使用 |
 | `scripts/refresh-dev.sh` | 把備份還原到 dev，含三道防誤刪防護 |
@@ -55,20 +55,31 @@ Hyper Backup 等方式把 bucket 的資料同步到 NAS 以外的地方。
 
 ### 3. 把腳本放到 NAS
 
-```bash
-# 在 /volume1 底下建目錄需要 root
-ssh -t nas 'sudo mkdir -p /volume1/scripts/inventory-app && sudo chown yin /volume1/scripts/inventory-app'
+先在 DSM 建共用資料夾：控制台 → 共用資料夾 → 新增，名稱 `scripts`、位置 volume1，
+權限只給 yin 讀寫、其他帳號「禁止存取」。排程以 root 執行這裡的腳本，
+其他帳號能改就等於能以 root 執行任意指令。
 
-# NAS 沒開 scp／rsync，用 tar 經 ssh 傳
+```bash
+# NAS 沒開 scp／rsync，用 tar 經 ssh 傳。
+# COPYFILE_DISABLE=1：不然 macOS 的 tar 會夾帶 ._ 開頭的垃圾檔。
 cd <專案目錄>
-tar -cf - scripts | ssh nas 'tar -xf - -C /volume1/scripts/inventory-app'
+ssh nas 'mkdir -p /volume1/scripts/yijing-backup'
+COPYFILE_DISABLE=1 tar -cf - scripts | ssh nas 'tar -xf - -C /volume1/scripts/yijing-backup'
+
+# 入口腳本：排程與手動執行都呼叫這一支。
+# nas-daily.sh 要和同目錄的 lib-common.sh、backup.env 等放在一起才能跑，
+# 所以入口只轉呼叫，不把 nas-daily.sh 本身搬出來。
+ssh nas 'cat > /volume1/scripts/yijing-backup.sh && chmod 755 /volume1/scripts/yijing-backup.sh' <<'EOF'
+#!/bin/bash
+exec bash /volume1/scripts/yijing-backup/scripts/nas-daily.sh "$@"
+EOF
 ```
 
 ### 4. 建立設定檔
 
 ```bash
 ssh nas
-cd /volume1/scripts/inventory-app/scripts
+cd /volume1/scripts/yijing-backup/scripts
 cp backup.env.example backup.env
 chmod 600 backup.env
 vi backup.env
@@ -115,7 +126,7 @@ vi backup.env
 不要直接設排程就當作好了。先手動確認能跑：
 
 ```bash
-ssh -t nas 'sudo bash /volume1/scripts/inventory-app/scripts/nas-daily.sh'
+ssh -t nas 'sudo bash /volume1/scripts/yijing-backup.sh'
 ```
 
 要看到兩個庫的各表筆數、「已上傳：s3://…（大小核對一致）」，
@@ -125,7 +136,7 @@ ssh -t nas 'sudo bash /volume1/scripts/inventory-app/scripts/nas-daily.sh'
 確認 S3 上真的有檔案：
 
 ```bash
-ssh -t nas 'sudo bash /volume1/scripts/inventory-app/scripts/fetch-backup.sh'
+ssh -t nas 'sudo bash /volume1/scripts/yijing-backup/scripts/fetch-backup.sh'
 ```
 
 ### 6. 設定排程（每天 12:00、18:00）
@@ -141,7 +152,7 @@ ssh -t nas 'sudo bash /volume1/scripts/inventory-app/scripts/fetch-backup.sh'
 | 排程 → 首次執行時間 | `12:00` |
 | 排程 → 頻率 | 每 6 小時 |
 | 排程 → 最後執行時間 | `18:00` |
-| 任務設定 → 執行指令 | `bash /volume1/scripts/inventory-app/scripts/nas-daily.sh` |
+| 任務設定 → 執行指令 | `bash /volume1/scripts/yijing-backup.sh` |
 | 任務設定 → 傳送執行詳細資料 | 勾選，並設定收件信箱 |
 
 12:00 起每 6 小時、最後一次 18:00，就是一天兩次。若你的 DSM 版本沒有
@@ -199,10 +210,10 @@ NAS 的時區必須是台北（控制台 → 區域選項）。排程時間與�
 所有還原都要先把備份從 S3 下載回 NAS：
 
 ```bash
-cd /volume1/scripts/inventory-app
+cd /volume1/scripts/yijing-backup
 sudo bash scripts/fetch-backup.sh                                # 列出所有備份
 sudo bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz  # 下載
-# → 已下載：/volume1/scripts/inventory-app/scripts/work/restore/prod-2026-10-04_120001.sql.gz
+# → 已下載：/volume1/scripts/yijing-backup/scripts/work/restore/prod-2026-10-04_120001.sql.gz
 ```
 
 下載的檔案是未加密的完整營業資料，還原完請手動刪除。
@@ -212,7 +223,7 @@ sudo bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz  # 下載
 正式庫或 dev 自己的備份都可以還原到 dev：
 
 ```bash
-cd /volume1/scripts/inventory-app
+cd /volume1/scripts/yijing-backup
 sudo DEV_DB_URL='<dev 連線字串>' \
 PROD_DB_URL='<正式連線字串>' \
 ARCHIVE=scripts/work/restore/prod-2026-10-04_120001.sql.gz \
@@ -241,7 +252,7 @@ dev 每天中午、傍晚各被清空重灌一次，白天在 dev 上做的東�
 手動執行以下步驟，每一步都先確認：
 
 ```bash
-cd /volume1/scripts/inventory-app
+cd /volume1/scripts/yijing-backup
 
 # 0. 先到任務排程器停用備份任務（理由見「保留策略」）
 
@@ -277,7 +288,7 @@ sudo bash -c 'set -a; . scripts/backup.env; set +a;
 步驟 2 會在 `scripts/work/` 留下一份本機檔案，下次排程時會被當成
 「上次沒傳成功」補傳並刪除，不需要手動處理。
 
-⚠️ 這個流程**從未對真正的 Supabase 執行過**（見下方「尚未驗證的部分」）。
+⚠️ 這個流程**從未對正式庫執行過**（還原到 dev 已在 Supabase 驗證，見下方「已驗證與尚未驗證的部分」）。
 建議先用同樣指令對 dev 演練一次，確認可行後再用於正式庫。
 
 ## 定期演練
@@ -309,19 +320,22 @@ sudo bash -c 'set -a; . scripts/backup.env; set +a;
 （authenticated 可讀寫、anon 被拒、RLS、policy、trigger、trgm 索引、取號序列），
 同一份備份可連續還原兩次。
 
-**尚未驗證（需在第一次真實執行時確認）**
+**已驗證（2026-10-04，DSM 上手動執行，對真正的 Supabase）**
 
-測試環境是一般 PostgreSQL 與 Debian，不是 Supabase 與 DSM：
+- 透過 Session pooler 執行 `pg_dump`：正式與 dev 都成功
+- DSM 上以 root 執行：Docker、`--network host` 直連 rustfs、process substitution 皆正常
+- 還原到 Supabase 的 dev：第一次因 `ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin`
+  權限不足整筆回滾（dev 未受影響），`refresh-dev.sh` 改為略過這幾句後成功
+- 還原後 authenticated 有 schema USAGE 與讀取權限、anon 被拒，`ensure_rls` 事件觸發器有補建
+
+**尚未驗證**
 
 | # | 項目 | 風險 | 怎麼確認 |
 |---|---|---|---|
-| 1 | 透過 Session pooler 執行 `pg_dump` | 研究結果顯示可行，但沒有實際連線測試過 | 第一次手動執行成功即可確認 |
-| 2 | DSM 上的執行環境 | 排程器的 PATH、DSM 的 bash 對 `tee` 與 process substitution 的支援、root 的 Docker 權限、`--network host` | 手動執行成功後，再讓排程實際跑一次並確認收到通知信 |
-| 3 | 還原到 Supabase 時的 `ALTER DEFAULT PRIVILEGES` 與 `drop schema public cascade` | Supabase 的 `postgres` 不是 superuser，還原可能因權限不足整筆回滾 | 第一次「還原到 dev」成功就代表沒問題 |
-| 4 | 還原後 authenticated 對 schema 的 USAGE 權限 | 缺少的話，前端登入後會全部 permission denied | 還原到 dev 後在 SQL Editor 執行下方查詢 |
-| 5 | 還原到正式庫的流程 | 從未執行過 | 先對 dev 演練一次 |
+| 1 | 任務排程器實際觸發 | 排程器的 PATH 與環境和手動 `sudo` 不同 | 第一次排程執行後看 `backup.log`，並確認失敗時會收到通知信 |
+| 2 | 還原到正式庫的流程 | 從未執行過 | 先對 dev 演練一次 |
 
-第一次還原到 dev 後，在 **dev 專案**的 SQL Editor 執行：
+dev 刷新後若要再確認權限，在 **dev 專案**的 SQL Editor 執行：
 
 ```sql
 select has_schema_privilege('authenticated','public','USAGE')         as schema_usage, -- 應為 true
@@ -348,7 +362,7 @@ select has_schema_privilege('authenticated','public','USAGE')         as schema_
 | `備份中止：dump 沒有任何 COPY 區塊` | 只匯出了結構沒有資料，通常是權限問題 |
 | `Could not connect to the endpoint URL` | rustfs 沒在跑，或 `S3_ENDPOINT` 填錯。`docker ps` 確認 `rustfs` 容器狀態 |
 | `AccessDenied` | S3 金鑰錯誤，或該金鑰對 bucket 沒有讀寫權限 |
-| `上傳驗證失敗` | 上傳後 S3 上的大小與本機不符，本機檔案已保留，下次自動補傳 |
+| `上傳驗證失敗` | 上傳後 S3 上的大小與本機不符，本機檔案已保留，下次自動補傳。若顯示「查無檔案」但 bucket 裡其實有檔案，檢查 `S3_ENDPOINT` 是否填成經 Cloudflare 的網址：那條路上傳後立刻查詢會偶發失敗，改回 `http://127.0.0.1:9000` |
 | `刪除失敗` | 金鑰沒有刪除權限。備份本身已成功，但舊備份不會被清掉 |
 | `拒絕執行：DEV_DB_URL 與 PROD_DB_URL 指向同一個資料庫` | `backup.env` 的 `DEV_DB_URL` 填成正式庫了 |
 | `拒絕執行：DEV_DB_URL 內含正式庫的 project ref` | 同上，連線字串的使用者名稱 `postgres.<ref>` 是正式專案的 |
