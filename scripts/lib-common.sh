@@ -41,6 +41,41 @@ mask_db_url() {
 }
 
 # ------------------------------------------------------------
+# 以 docker 執行 psql／pg_dump，密碼走環境變數而不是指令列。
+#
+# 連線字串直接當參數的話，備份執行的那一兩分鐘內，NAS 上任何帳號
+# ps 一下就看得到含密碼的完整字串（容器內的行程在宿主的 ps 裡一樣可見）。
+# 環境變數只有同一個帳號或 root 讀得到（/proc/<pid>/environ）。
+#
+# 連線字串裡的密碼是 URL 編碼過的（# 寫成 %23），libpq 解析 URI 時會解碼；
+# 拆出來改走 PGPASSWORD 就要自己解碼，否則 %23 會被當成三個字元送出。
+#
+# 用法：[PGCONNECT_TIMEOUT=秒] pg_exec <連線字串> <映像> <psql|pg_dump> [參數...]
+# ------------------------------------------------------------
+url_decode() {
+  local s="$1" out=""
+  while [[ "$s" =~ ^([^%]*)%([0-9A-Fa-f]{2})(.*)$ ]]; do
+    out+="${BASH_REMATCH[1]}$(printf "\\x${BASH_REMATCH[2]}")"
+    s="${BASH_REMATCH[3]}"
+  done
+  printf '%s' "${out}${s}"
+}
+
+pg_exec() {
+  local url="$1" image="$2" tool="$3"
+  shift 3
+  local raw_password
+  raw_password="$(printf '%s\n' "$url" | sed -nE 's#^[a-z]+://[^:@/]+:([^@]*)@.*#\1#p')"
+
+  PGPASSWORD="$(url_decode "${raw_password}")" \
+  docker run --rm -i \
+    -e PGPASSWORD \
+    -e PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-30}" \
+    "$image" \
+    "$tool" "$(printf '%s\n' "$url" | sed -E 's#^([a-z]+://[^:@/]+):[^@]*@#\1@#')" "$@"
+}
+
+# ------------------------------------------------------------
 # 取出連線字串的「身分」：使用者@主機:port/資料庫（不含密碼）。
 #
 # 不能只比主機：Supabase 的 Session pooler 主機是整個區域共用的
@@ -71,10 +106,8 @@ detect_pg_major() {
   local version_num
 
   version_num="$(
-    docker run --rm -i \
-      -e PGCONNECT_TIMEOUT=15 \
-      "$probe_image" \
-      psql "$url" -tAc 'show server_version_num' 2>/dev/null | tr -d '[:space:]'
+    PGCONNECT_TIMEOUT=15 pg_exec "$url" "$probe_image" \
+      psql -tAc 'show server_version_num' 2>/dev/null | tr -d '[:space:]'
   )" || true
 
   if ! printf '%s' "$version_num" | grep -qE '^[0-9]+$'; then

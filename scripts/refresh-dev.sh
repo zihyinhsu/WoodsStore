@@ -103,10 +103,7 @@ echo "來源封存：${ARCHIVE}"
 echo "目標 PostgreSQL 主版本：${PG_MAJOR}"
 
 EXISTING_ORDERS="$(
-  docker run --rm -i \
-    -e PGCONNECT_TIMEOUT=30 \
-    "postgres:${PG_MAJOR}-alpine" \
-    psql "${DEV_DB_URL}" -tAc \
+  pg_exec "${DEV_DB_URL}" "postgres:${PG_MAJOR}-alpine" psql -tAc \
     "select coalesce((select count(*) from public.orders), 0)" 2>/dev/null \
     | tr -d '[:space:]'
 )" || EXISTING_ORDERS="0"
@@ -174,10 +171,7 @@ echo "--- 還原中（單一交易，失敗會整筆回滾）---"
 # --single-transaction + ON_ERROR_STOP：任一句失敗即整體回滾。
 # 沒有這兩個旗標的話，psql 會跳過錯誤繼續跑，最後得到一個
 # 「部分還原」的資料庫——那比還原失敗更難察覺。
-docker run --rm -i \
-  -e PGCONNECT_TIMEOUT=30 \
-  "postgres:${PG_MAJOR}-alpine" \
-  psql "${DEV_DB_URL}" \
+pg_exec "${DEV_DB_URL}" "postgres:${PG_MAJOR}-alpine" psql \
     --single-transaction \
     --variable ON_ERROR_STOP=1 \
     --quiet \
@@ -187,10 +181,7 @@ docker run --rm -i \
 # 還原後驗證：證明資料真的進去了
 # ------------------------------------------------------------
 echo "--- 驗證還原結果 ---"
-docker run --rm -i \
-  -e PGCONNECT_TIMEOUT=30 \
-  "postgres:${PG_MAJOR}-alpine" \
-  psql "${DEV_DB_URL}" -tAc "
+pg_exec "${DEV_DB_URL}" "postgres:${PG_MAJOR}-alpine" psql -tAc "
     select 'products=' || (select count(*) from public.products)
         || ' partners=' || (select count(*) from public.partners)
         || ' orders='   || (select count(*) from public.orders)

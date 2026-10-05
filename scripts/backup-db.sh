@@ -95,10 +95,7 @@ echo "伺服器 PostgreSQL 主版本：${PG_MAJOR}（使用 postgres:${PG_MAJOR}
 # 不該內建在備份檔裡讓人一不小心 psql 灌下去就把目標清空。
 # ------------------------------------------------------------
 echo "--- 匯出中 ---"
-docker run --rm -i \
-  -e PGCONNECT_TIMEOUT=30 \
-  "postgres:${PG_MAJOR}-alpine" \
-  pg_dump "${DB_URL}" \
+pg_exec "${DB_URL}" "postgres:${PG_MAJOR}-alpine" pg_dump \
     --schema=public \
     --no-owner \
     --format=plain \
