@@ -45,9 +45,17 @@ KEEP_MIN="${S3_KEEP_MIN:-14}"
 # 備份檔上傳 S3 前的落地處，也放 log 與鎖。
 # 不放在要備份的 S3 裡：log 要在 S3 連不上的那天也寫得進去，才查得出原因。
 STAGING_DIR="${STAGING_DIR:-${SCRIPT_DIR}/work}"
-mkdir -p "${STAGING_DIR}"
 # 暫存的是未加密的完整營業資料，只讓執行排程的 root 讀得到。
-chmod 700 "${STAGING_DIR}"
+#
+# 已經是 700 就不再 chmod：DSM 任務排程器以 root 執行時，對共用資料夾裡
+# root 自己的目錄 chmod 仍會得到 Operation not permitted（手動 sudo 正常），
+# 原本無條件 chmod 會在 set -e 下讓排程一啟動就中止、什麼都沒備份。
+# 改不了只警告：權限偏寬是要處理的問題，但不值得為此放棄當次備份。
+mkdir -p -m 700 "${STAGING_DIR}"
+if [ "$(stat -c '%a' "${STAGING_DIR}")" != "700" ]; then
+  chmod 700 "${STAGING_DIR}" \
+    || echo "警告：無法把 ${STAGING_DIR} 設為 700，暫存的備份檔可能被其他帳號讀到。" >&2
+fi
 
 LOG_FILE="${STAGING_DIR}/backup.log"
 
@@ -58,6 +66,9 @@ echo ""
 echo "════════════════════════════════════════════════"
 echo " 定時備份 $(date '+%F %T')"
 echo "════════════════════════════════════════════════"
+# DSM 任務排程器設定「使用者 root」時，實際執行身分不一定是 uid 0
+# （實測寫不進 root 擁有的 work/），印出來才查得到是誰在跑。
+echo "執行身分：$(id)"
 
 # ------------------------------------------------------------
 # 防止重複執行
@@ -65,10 +76,18 @@ echo "════════════════════════�
 # 兩份 pg_dump 同時對同一個庫拉資料沒有好處。
 # ------------------------------------------------------------
 LOCK_DIR="${STAGING_DIR}/.lock"
+# 建不了鎖要分兩種：鎖已存在是正常的跳過；目錄沒有寫入權限是設定錯誤，
+# 必須以非零結束寄出通知。混為一談的話，權限錯誤會被報成「有人在跑」，
+# 排程天天正常結束卻從來沒備份。
 if ! mkdir "${LOCK_DIR}" 2>/dev/null; then
-  echo "已有另一份備份正在執行（${LOCK_DIR} 存在），本次跳過。"
-  echo "若確認沒有在跑，手動刪除該目錄即可。"
-  exit 0
+  if [ -d "${LOCK_DIR}" ]; then
+    echo "已有另一份備份正在執行（${LOCK_DIR} 存在），本次跳過。"
+    echo "若確認沒有在跑，手動刪除該目錄即可。"
+    exit 0
+  fi
+  echo "錯誤：無法在 ${STAGING_DIR} 建立鎖目錄，執行身分對它沒有寫入權限。" >&2
+  ls -ld "${STAGING_DIR}" >&2 || true
+  exit 1
 fi
 trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
 

@@ -126,8 +126,14 @@ vi backup.env
 不要直接設排程就當作好了。先手動確認能跑：
 
 ```bash
-ssh -t nas 'sudo bash /volume1/scripts/yijing-backup.sh'
+ssh nas 'bash /volume1/scripts/yijing-backup.sh'
 ```
+
+**手動執行不要加 `sudo`。** DSM 任務排程器即使「使用者」選 root，實際也是以任務擁有者
+（yin）的身分執行（2026-10-05 實測 `id` 為 uid 1026）。用 sudo 手動跑過一次，
+`scripts/work/` 就會變成 root 擁有、權限 700，之後排程以 yin 執行時寫不進 log 與鎖，
+一啟動就中止、什麼都沒備份。yin 在 docker 群組裡、也擁有 `backup.env`，不需要 root。
+若已經用 sudo 跑過，執行 `sudo chown -R yin:users /volume1/scripts/yijing-backup/scripts/work` 改回來。
 
 要看到兩個庫的各表筆數、「已上傳：s3://…（大小核對一致）」，
 最後一行是「S3 上現有備份：正式庫 N 份，dev N 份」。
@@ -136,7 +142,7 @@ ssh -t nas 'sudo bash /volume1/scripts/yijing-backup.sh'
 確認 S3 上真的有檔案：
 
 ```bash
-ssh -t nas 'sudo bash /volume1/scripts/yijing-backup/scripts/fetch-backup.sh'
+ssh nas 'bash /volume1/scripts/yijing-backup/scripts/fetch-backup.sh'
 ```
 
 ### 6. 設定排程（每天 12:00、18:00）
@@ -147,7 +153,7 @@ ssh -t nas 'sudo bash /volume1/scripts/yijing-backup/scripts/fetch-backup.sh'
 
 | 欄位 | 值 |
 |---|---|
-| 一般 → 使用者 | `root`（需要 Docker 權限） |
+| 一般 → 使用者 | `root` 或 yin 皆可：實際都以任務擁有者 yin 執行，需要 yin 在 docker 群組裡 |
 | 排程 → 執行日期 | 每日 |
 | 排程 → 首次執行時間 | `12:00` |
 | 排程 → 頻率 | 每 6 小時 |
@@ -211,8 +217,8 @@ NAS 的時區必須是台北（控制台 → 區域選項）。排程時間與�
 
 ```bash
 cd /volume1/scripts/yijing-backup
-sudo bash scripts/fetch-backup.sh                                # 列出所有備份
-sudo bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz  # 下載
+bash scripts/fetch-backup.sh                                # 列出所有備份
+bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz  # 下載
 # → 已下載：/volume1/scripts/yijing-backup/scripts/work/restore/prod-2026-10-04_120001.sql.gz
 ```
 
@@ -224,7 +230,7 @@ sudo bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz  # 下載
 
 ```bash
 cd /volume1/scripts/yijing-backup
-sudo DEV_DB_URL='<dev 連線字串>' \
+DEV_DB_URL='<dev 連線字串>' \
 PROD_DB_URL='<正式連線字串>' \
 ARCHIVE=scripts/work/restore/prod-2026-10-04_120001.sql.gz \
 CONFIRM_OVERWRITE_DEV=yes \
@@ -257,14 +263,14 @@ cd /volume1/scripts/yijing-backup
 # 0. 先到任務排程器停用備份任務（理由見「保留策略」）
 
 # 1. 下載要還原的那份，並檢查內容
-sudo bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz
+bash scripts/fetch-backup.sh prod-2026-10-04_120001.sql.gz
 F=scripts/work/restore/prod-2026-10-04_120001.sql.gz
-sudo gzip -dc "$F" | head -40
-sudo gzip -dc "$F" | grep -c '^COPY '
+gzip -dc "$F" | head -40
+gzip -dc "$F" | grep -c '^COPY '
 
 # 2. 還原前先備份「現在的」狀態，即使它是壞的
 #    弄錯還原方向時，這是唯一能回頭的路
-sudo bash -c 'set -a; . scripts/backup.env; set +a;
+bash -c 'set -a; . scripts/backup.env; set +a;
   DB_URL="$PROD_DB_URL" DB_LABEL=prod STAGING_DIR=scripts/work bash scripts/backup-db.sh'
 
 # 3. 還原（single-transaction：任一句失敗即整筆回滾，不會留下半毀狀態）
@@ -276,9 +282,9 @@ sudo bash -c 'set -a; . scripts/backup.env; set +a;
   echo 'drop schema if exists public cascade;'
   echo 'create schema public;'
   echo 'create extension if not exists pg_trgm with schema public;'
-  sudo gzip -dc "$F" \
+  gzip -dc "$F" \
     | sed 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/'
-} | sudo /usr/local/bin/docker run --rm -i postgres:17-alpine psql '<正式連線字串>' \
+} | /usr/local/bin/docker run --rm -i postgres:17-alpine psql '<正式連線字串>' \
   --single-transaction --variable ON_ERROR_STOP=1
 
 # 4. 確認無誤後刪除下載的檔案，重新啟用排程
@@ -332,8 +338,10 @@ sudo bash -c 'set -a; . scripts/backup.env; set +a;
 
 | # | 項目 | 風險 | 怎麼確認 |
 |---|---|---|---|
-| 1 | 任務排程器實際觸發 | 排程器的 PATH 與環境和手動 `sudo` 不同 | 第一次排程執行後看 `backup.log`，並確認失敗時會收到通知信 |
-| 2 | 還原到正式庫的流程 | 從未執行過 | 先對 dev 演練一次 |
+| 1 | 還原到正式庫的流程 | 從未執行過 | 先對 dev 演練一次 |
+
+2026-10-05 由任務排程器實際執行成功（以 yin 身分）。在那之前 10/5 的
+12:00、18:00 兩次排程都在啟動時中止，原因見步驟 5「手動執行不要加 sudo」。
 
 dev 刷新後若要再確認權限，在 **dev 專案**的 SQL Editor 執行：
 
@@ -355,7 +363,8 @@ select has_schema_privilege('authenticated','public','USAGE')         as schema_
 | 訊息 | 原因與處理 |
 |---|---|
 | `找不到 docker` | NAS 未安裝 Container Manager |
-| `docker 存在但無法連線` | 排程的使用者不是 root |
+| `docker 存在但無法連線` | 執行身分不在 docker 群組裡。log 開頭的「執行身分」會印出實際的使用者與群組 |
+| `無法在 … 建立鎖目錄` 或 `tee: …backup.log: Permission denied` | `scripts/work/` 被 sudo 手動執行改成 root 擁有，排程的 yin 寫不進去。`sudo chown -R yin:users` 改回來 |
 | `缺少 S3 設定` | `backup.env` 沒填 `S3_ENDPOINT`／`S3_BUCKET`／`S3_ACCESS_KEY`／`S3_SECRET_KEY` |
 | `無法取得伺服器版本` | 連線字串錯誤，或用了 Transaction pooler（6543）。改用 Session pooler（5432） |
 | `備份中止：dump 缺少預期的資料表` | 連到了錯誤的資料庫 |
