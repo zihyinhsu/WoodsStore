@@ -47,7 +47,7 @@ const fieldState = async page => ({
 
   // 按鈕依狀態顯示
   // 讀 badge 的 data-status 而非欄位索引：類型與狀態同格後，位置已不對應欄名
-  const byStatus = await page.locator('tr.clickable-row').evaluateAll(trs => {
+  const byStatus = await page.locator('tr.clickable-row:not(.group-row)').evaluateAll(trs => {
     const out = {};
     trs.forEach(tr => {
       const s = tr.querySelector('[data-status]')?.dataset.status;
@@ -94,7 +94,7 @@ const fieldState = async page => ({
   await page.waitForTimeout(500);
 
   // 草稿：表頭與明細可編輯，僅類型鎖定
-  const draftRow = page.locator('tr.clickable-row').filter({ hasText: '草稿' }).first();
+  const draftRow = page.locator('tr.clickable-row:not(.group-row)').filter({ hasText: '草稿' }).first();
   if (await draftRow.count() > 0) {
     await draftRow.locator('.btn-edit').click();
     await page.waitForTimeout(2000);
@@ -113,7 +113,7 @@ const fieldState = async page => ({
   }
 
   // 已確認：僅備註可編輯
-  const confirmedRow = page.locator('tr.clickable-row').filter({ hasText: '已確認' }).first();
+  const confirmedRow = page.locator('tr.clickable-row:not(.group-row)').filter({ hasText: '已確認' }).first();
   if (await confirmedRow.count() > 0) {
     await confirmedRow.locator('.btn-edit').click();
     await page.waitForTimeout(2000);
@@ -139,6 +139,30 @@ const fieldState = async page => ({
     await page.locator('#order-modal .close-btn').first().click();
     await page.waitForTimeout(500);
   }
+
+  // 合併顯示（預設）：分批單據一組一列，組列本身不放操作鈕，展開後各批各有自己的操作。
+  r.check('預設為合併分批顯示', await page.inputValue('#search-view'), 'group');
+  const groupRow = page.locator('tr.group-row').first();
+  if (await groupRow.count() > 0) {
+    r.check('組列沒有編輯按鈕', await groupRow.locator('.btn-edit').count(), 0);
+    r.truthy('組列顯示往來對象', (await groupRow.locator('td').nth(4).innerText()).trim() !== '-');
+    await groupRow.locator('td').nth(1).click();
+    await page.waitForTimeout(2500);
+    const blocks = page.locator('.detail-row .batch-block');
+    r.truthy('展開後逐批列出（至少兩批）', await blocks.count() >= 2);
+    r.check('每批都有自己的明細表',
+      await page.locator('.detail-row .batch-block .detail-table').count(), await blocks.count());
+    await groupRow.locator('td').nth(1).click();
+    await page.waitForTimeout(600);
+  } else {
+    r.info('略過組列驗證', '目前查詢範圍內沒有分批（接續原單）的單據');
+  }
+
+  // 逐張顯示：回到一張單一列，網址記住選擇。批次標示的驗證在這個模式下做，接續單才會單獨成列。
+  await page.selectOption('#search-view', 'flat');
+  await page.waitForTimeout(2500);
+  r.check('逐張顯示寫入網址', new URL(page.url()).searchParams.get('view'), 'flat');
+  r.check('逐張顯示沒有組列', await page.locator('tr.group-row').count(), 0);
 
   // 批次標示：點「接續 X／共 N 批」以原單號篩出整組，且不展開明細。正式資料不保證有分批單。
   const batchLink = page.locator('.batch-link').first();
