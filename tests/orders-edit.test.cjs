@@ -72,6 +72,24 @@ const fieldState = async page => ({
   r.check('新增模式標題', create.title, '新增單據');
   r.check('新增模式可選類型', create.typeDisabled, false);
   r.check('新增模式無唯讀提示', create.hintVisible, false);
+
+  // 接續單據只適用進貨／出貨；調整單在新增時已藏起，改用 evaluate 直接切值觸發 change。
+  const parentVisible = () => page.locator('#order-parent-group').isVisible();
+  await page.selectOption('#order-type', 'purchase');
+  await page.waitForTimeout(300);
+  r.check('進貨單顯示接續單據', await parentVisible(), true);
+  await page.selectOption('#order-type', 'sale');
+  await page.waitForTimeout(300);
+  r.check('出貨單顯示接續單據', await parentVisible(), true);
+  await page.evaluate(() => {
+    const el = document.getElementById('order-type');
+    el.value = 'adjust';
+    el.dispatchEvent(new Event('change'));
+  });
+  await page.waitForTimeout(300);
+  r.check('調整單隱藏接續單據', await parentVisible(), false);
+  r.check('未選對象時只有「新的一批」', await page.locator('#order-parent option').count(), 1);
+
   await page.locator('#order-modal .close-btn').first().click();
   await page.waitForTimeout(500);
 
@@ -114,7 +132,27 @@ const fieldState = async page => ({
       .evaluateAll(els => els.filter(e => e.disabled).length);
     r.check('已確認明細全部唯讀', disabled, total);
     r.check('已確認隱藏存為草稿', await page.locator('#btn-save-draft').isHidden(), true);
+
+    // 接續單據屬於 metadata，與備註一樣在已確認後仍可補設；只有「已是原單」時鎖住。
+    const isRoot = await confirmedRow.locator('.batch-link').filter({ hasText: '共' }).count() > 0;
+    r.check('已確認接續單據可否修改', await page.isDisabled('#order-parent'), isRoot);
     await page.locator('#order-modal .close-btn').first().click();
+    await page.waitForTimeout(500);
+  }
+
+  // 批次標示：點「接續 X／共 N 批」以原單號篩出整組，且不展開明細。正式資料不保證有分批單。
+  const batchLink = page.locator('.batch-link').first();
+  if (await batchLink.count() > 0) {
+    const rootNo = await batchLink.getAttribute('data-root-no');
+    await batchLink.click();
+    await page.waitForTimeout(2500);
+    r.check('點批次標示帶入原單號', await page.inputValue('#search-keyword'), rootNo);
+    r.check('點批次標示清空日期起', await page.inputValue('#search-date-from'), '');
+    r.check('點批次標示不展開明細', await page.locator('.detail-row').count(), 0);
+    const nos = await page.locator('tr.clickable-row').allInnerTexts();
+    r.truthy('篩出的單都屬於同一組', nos.length > 0 && nos.every(t => t.includes(rootNo)));
+  } else {
+    r.info('略過批次標示驗證', '目前沒有分批（接續原單）的單據');
   }
 
   r.finish(errors, blockedWrites);

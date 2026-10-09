@@ -105,6 +105,51 @@ async function pickPartnerWithOrders(page, max = 12) {
     r.info('略過舊制唯讀驗證', '目前沒有含未分配金額的收款');
   }
 
+  // 分批進出貨：同一批的單包成一組，整組勾選＝組內各列 data-amount 加總。
+  // 分批最常見在進貨，先試付款方向；正式資料不保證有分批單，找不到就略過。
+  if (await page.locator('#payment-modal.active').count() > 0) {
+    await page.locator('#payment-modal .close-btn').first().click();
+    await page.waitForTimeout(400);
+  }
+  let groupFound = false;
+  for (const direction of ['out', 'in']) {
+    await page.click(`.tab-btn[data-dir="${direction}"]`);
+    await page.waitForTimeout(1500);
+    await page.click('#btn-add-payment');
+    await page.waitForTimeout(800);
+
+    const values = await page.$$eval('#payment-partner option', opts =>
+      opts.map(o => o.value).filter(Boolean));
+    for (const value of values.slice(0, 12)) {
+      await page.selectOption('#payment-partner', value);
+      await page.waitForTimeout(1500);
+      if (await page.locator('.allocation-group').count() > 0) { groupFound = true; break; }
+    }
+    if (groupFound) break;
+    await page.locator('#payment-modal .close-btn').first().click();
+    await page.waitForTimeout(400);
+  }
+
+  if (groupFound) {
+    const group = page.locator('.allocation-group').first();
+    const amounts = await group.locator('.allocation-row')
+      .evaluateAll(rows => rows.map(row => Number(row.getAttribute('data-amount'))));
+    const expected = Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100;
+    r.truthy('同組至少兩張', amounts.length >= 2);
+
+    await group.locator('.btn-toggle-group').click();
+    await page.waitForTimeout(300);
+    r.check('整組勾選＝組內加總', await hiddenAmount(page), expected);
+    r.check('整組勾選後按鈕改為取消', (await group.locator('.btn-toggle-group').textContent()).trim(), '取消整組');
+
+    await group.locator('.btn-toggle-group').click();
+    await page.waitForTimeout(300);
+    r.check('取消整組歸零', await hiddenAmount(page), 0);
+    await page.locator('#payment-modal .close-btn').first().click();
+  } else {
+    r.info('略過整組勾選驗證', '目前沒有分批（接續原單）且未結清的單據');
+  }
+
   r.finish(errors, blockedWrites);
   await browser.close();
 })().catch(e => { console.error('FATAL:', e.message); process.exit(1); });
