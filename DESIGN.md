@@ -129,7 +129,7 @@
 ### Search Bar（日期區間查詢）
 
 - 結構：`.glass-card` 內含兩個 `form-group`（起訖日期）+ 查詢按鈕，以 flex 對齊底部
-- 已用於：對帳單、單據管理、總覽成本分析
+- 已用於：對帳單、進出貨管理、總覽成本分析
 - 規則：起訖日期需驗證 from ≤ to，錯誤以 toast 呈現
 
 ### Analysis Block（`.metric-cards` + `.records-table` + `.date-controls`）

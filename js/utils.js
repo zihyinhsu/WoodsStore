@@ -99,7 +99,7 @@ export function escapeHtml(value) {
   }[ch]));
 }
 
-// 列表用的商品摘要。單號認不出單據內容，所以單據管理、收款主表、沖帳明細一律
+// 列表用的商品摘要。單號認不出單據內容，所以進出貨管理、收款主表、沖帳明細一律
 // 以「商品摘要為主、單號為輔」呈現，摘要文案集中在這裡組，不寫進 view。
 // 回傳值可直接塞進 innerHTML（品名已跳脫）。
 // 取不到代表品項時回傳 '-'：沒有明細的單據會是這樣，資料庫尚未套用 patch-025 的
@@ -110,7 +110,7 @@ export function itemSummary(topItemName, itemCount) {
   return Number(itemCount) > 1 ? `${name} 等 ${Number(itemCount)} 項` : name;
 }
 
-// 產生一個跳到單據管理、直接搜這張單的連結。收款沖帳明細與商品進出紀錄都會用到。
+// 產生一個跳到進出貨管理、直接搜這張單的連結。收款沖帳明細與商品進出紀錄都會用到。
 // status=all 不可省略：單據頁預設只列有效單據，作廢的單會直接搜不到而顯示空白。
 // expand=1 讓對方頁面在命中單筆時自動展開明細，省去到站後再點一次。
 // 帶上單據日期當作查詢區間（from=to=當日）：orders.html 沒收到日期會套「近 30 天」
@@ -122,7 +122,7 @@ export function orderSearchLink(orderNo, orderDate) {
   const day = orderDate ? String(orderDate).slice(0, 10) : '';
   const dateQs = day ? `&from=${day}&to=${day}` : '';
   const href = `orders.html?q=${encodeURIComponent(orderNo)}&status=all&expand=1${dateQs}`;
-  return `<a href="${escapeHtml(href)}" title="在單據管理中查看此單">${escapeHtml(orderNo)}</a>`;
+  return `<a href="${escapeHtml(href)}" title="在進出貨管理中查看此單">${escapeHtml(orderNo)}</a>`;
 }
 
 // 金額運算用。浮點數相加會出現 0.1 + 0.2 這類尾數，
