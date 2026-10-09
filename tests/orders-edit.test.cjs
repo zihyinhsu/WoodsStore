@@ -164,6 +164,24 @@ const fieldState = async page => ({
   r.check('逐張顯示寫入網址', new URL(page.url()).searchParams.get('view'), 'flat');
   r.check('逐張顯示沒有組列', await page.locator('tr.group-row').count(), 0);
 
+  // 出貨單列印：明細要有單價、金額與合計。走列表勾選（單張列印鈕只在展開的明細裡）；
+  // window.print 換成空函式，列印對話框才不會卡住測試，版面直接讀 #print-area。
+  const pick = page.locator('#orders-table .print-pick').first();
+  if (await pick.count() > 0) {
+    await page.evaluate(() => { window.print = () => {}; });
+    await pick.click();
+    r.check('選取列提示中二刀用紙張數', await page.locator('.selection-bar-count').innerText(), '已選 1 張，需中二刀 1 張');
+    await page.click('#btn-print-selected');
+    await page.waitForTimeout(2500);
+    const slip = page.locator('#print-area .print-slip').first();
+    r.check('出貨單明細欄位', await slip.locator('thead th').allInnerTexts(),
+      ['品名', '規格', '數量', '單位', '單價', '金額']);
+    r.truthy('出貨單有明細合計', (await slip.innerText()).includes('明細合計'));
+    r.truthy('出貨單頁尾為客戶簽收', (await slip.locator('.print-footer').innerText()).includes('客戶簽收'));
+  } else {
+    r.info('略過出貨單列印驗證', '查詢區間內沒有可列印的出貨單');
+  }
+
   // 批次標示：點「接續 X／共 N 批」以原單號篩出整組，且不展開明細。正式資料不保證有分批單。
   const batchLink = page.locator('.batch-link').first();
   if (await batchLink.count() > 0) {

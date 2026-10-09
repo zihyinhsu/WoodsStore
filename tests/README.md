@@ -74,7 +74,7 @@ TEST_EMAIL=someone@example.com TEST_PASSWORD=... npm test
 | `dashboard.test.cjs` | 總覽本月出貨收益/進貨成本/出貨成本、成本分析預設區間與合計、日期區間驗證 |
 | `products-tabs.test.cjs` | 商品頁「所有商品／庫存不足」分頁切換、空狀態、數量標記、hash 直達 |
 | `statement.test.cjs` | 對帳單日期查詢、客戶 tabs、多選列印、全選三態、查無資料的狀態重置 |
-| `orders-edit.test.cjs` | 連點不重複展開明細、草稿可編輯、已確認僅開放備註、作廢不可編輯 |
+| `orders-edit.test.cjs` | 連點不重複展開明細、草稿可編輯、已確認僅開放備註、作廢不可編輯、出貨單列印版面 |
 | `forms.test.cjs` | 自動編號提示、編號留空可送出、儲存按鈕防連點、動態按鈕文案 |
 
 ## 撰寫新測試

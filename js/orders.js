@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, groupBy } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -536,20 +536,22 @@ async function printShippingOrders(orders) {
   const partnerIds = [...new Set(orders.map(o => o.partner_id).filter(Boolean))];
 
   try {
-    const [itemsRes, partnersRes] = await Promise.all([
+    const noPartners = Promise.resolve({ data: [], error: null });
+    const [itemsRes, partnersRes, balancesRes] = await Promise.all([
       sb.from('order_items').select('*, products(name, spec, unit)').in('order_id', orderIds),
-      partnerIds.length > 0
-        ? sb.from('partners').select('*').in('id', partnerIds)
-        : Promise.resolve({ data: [], error: null })
+      partnerIds.length > 0 ? sb.from('partners').select('*').in('id', partnerIds) : noPartners,
+      partnerIds.length > 0 ? sb.from('partner_balance_view').select('id, balance').in('id', partnerIds) : noPartners
     ]);
     if (itemsRes.error) throw itemsRes.error;
     if (partnersRes.error) throw partnersRes.error;
+    if (balancesRes.error) throw balancesRes.error;
 
     const itemsByOrder = groupBy(itemsRes.data || [], 'order_id');
     const partnersById = new Map((partnersRes.data || []).map(p => [p.id, p]));
+    const balancesById = new Map((balancesRes.data || []).map(b => [b.id, b.balance]));
 
     printSlips(orders.map(order =>
-      shippingSlipHtml(order, itemsByOrder.get(order.id) || [], partnersById.get(order.partner_id))));
+      shippingSlipHtml(order, itemsByOrder.get(order.id) || [], partnersById.get(order.partner_id), balancesById.get(order.partner_id))));
     return true;
   } catch (error) {
     console.error('Error loading data for print:', error);
@@ -558,7 +560,11 @@ async function printShippingOrders(orders) {
   }
 }
 
-function shippingSlipHtml(order, items, partner) {
+// 金額與明細合計取明細小計（含明細折扣、不含整單折讓與稅），與對帳單同口徑。
+// 應收餘額則是列印當下的客戶累計餘額（partner_balance_view，含折讓與稅），不是開單當時的，
+// 所以兩者本來就對不上，不要拿合計去推餘額。
+function shippingSlipHtml(order, items, partner, balance) {
+  const itemsTotal = round2(sum(items, 'subtotal'));
   return `
     <div class="print-doc-header">
       <h1>藝境裝璜材料行</h1>
@@ -583,6 +589,8 @@ function shippingSlipHtml(order, items, partner) {
           <th>規格</th>
           <th>數量</th>
           <th>單位</th>
+          <th>單價</th>
+          <th>金額</th>
         </tr>
       </thead>
       <tbody>
@@ -592,8 +600,19 @@ function shippingSlipHtml(order, items, partner) {
             <td>${escapeHtml(item.products.spec || '')}</td>
             <td>${Math.abs(item.qty)}</td>
             <td>${escapeHtml(item.products.unit || '')}</td>
+            <td>${formatCurrency(item.unit_price)}</td>
+            <td>${formatCurrency(item.subtotal)}</td>
           </tr>
         `).join('')}
+        <tr>
+          <td colspan="5" style="text-align: right; font-weight: bold;">明細合計</td>
+          <td style="font-weight: bold;">${formatCurrency(itemsTotal)}</td>
+        </tr>
+        ${balance !== null && balance !== undefined ? `
+        <tr>
+          <td colspan="5" style="text-align: right; font-weight: bold;">應收餘額</td>
+          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
+        </tr>` : ''}
       </tbody>
     </table>
     <div class="print-footer">
