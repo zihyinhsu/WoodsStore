@@ -2,7 +2,7 @@
 -- 進銷存系統 — 完整 schema（整併版）
 -- ============================================================
 -- 用途：在一個「全新」的 Supabase 專案上一次建到目前最終狀態。
---       等價於依序執行 migration.sql + patch-001 ~ patch-026 的結果，
+--       等價於依序執行 migration.sql + patch-001 ~ patch-027 的結果，
 --       但只保留每個物件的最終定義，並依相依關係重新排序。
 --
 -- 與原始 patch 系列的差異（刻意）：
@@ -84,8 +84,8 @@ create table partners (
 
 -- ----------------------------------------
 -- 單據主檔（進貨 / 銷貨 / 調整）
--- payment_status 欄位保留但為死值：付款狀態一律由收款紀錄推導
--- （見 order_payment_summary_view）。update_order_meta 會拒絕寫入。
+-- payment_status 欄位保留但為死值：付款狀態一律由收付款紀錄推導
+-- （見 order_payment_summary_view，出貨單與進貨單皆同）。update_order_meta 會拒絕寫入。
 -- ----------------------------------------
 create table orders (
   id              uuid primary key default gen_random_uuid(),
@@ -124,7 +124,9 @@ comment on column order_items.unit_cost is
   '確認出貨當下寫定的成本快照。進貨=實付單價；出貨=截至出貨日的累計進貨加權平均。';
 
 -- ----------------------------------------
--- 收款單
+-- 收付款單
+-- 不另設方向欄位：方向由往來對象推導——客戶＝收款（沖出貨單）、供應商＝付款（沖進貨單）。
+-- 多一個欄位就多一個會與 partners.type 不一致的機會。
 -- ----------------------------------------
 create table payments (
   id            uuid primary key default gen_random_uuid(),
@@ -139,8 +141,8 @@ create table payments (
 );
 
 -- ----------------------------------------
--- 收款 ↔ 出貨單 逐單分配（一筆收款可沖多張出貨單）
--- amount 為「此筆收款分配到該張單的金額」，是付款狀態的單一事實來源。
+-- 收付款 ↔ 單據 逐單分配（一筆收款可沖多張出貨單；一筆付款可沖多張進貨單）
+-- amount 為「此筆收付款分配到該張單的金額」，是付款狀態的單一事實來源。
 -- ----------------------------------------
 create table payment_orders (
   id          uuid primary key default gen_random_uuid(),
@@ -152,7 +154,7 @@ create table payment_orders (
 );
 
 comment on column payment_orders.amount is
-  '此筆收款分配到該張出貨單的金額。單一事實來源，付款狀態由此推導。';
+  '此筆收付款分配到該張單據（出貨單或進貨單）的金額。單一事實來源，付款狀態由此推導。';
 
 
 -- ============================================================
@@ -247,8 +249,9 @@ left join (
 ) items on items.order_id = o.id;
 
 -- ----------------------------------------
--- 單據收款彙總（付款狀態的唯一推導來源）
--- 只涵蓋已確認出貨單：進貨/調整/草稿/作廢單不談應收。
+-- 單據收付款彙總（付款狀態的唯一推導來源）
+-- 涵蓋已確認的出貨單（應收）與進貨單（應付），以 type 區分；調整/草稿/作廢單不談收付。
+-- type 放在最後一欄：create or replace view 只能在尾端追加欄位（patch-027）。
 -- ----------------------------------------
 create view order_payment_summary_view as
 select
@@ -263,15 +266,18 @@ select
     when coalesce(sum(po.amount), 0) <= 0             then 'unpaid'
     when coalesce(sum(po.amount), 0) < ot.order_total then 'partial'
     else 'paid'
-  end as payment_status
+  end as payment_status,
+  ot.type
 from order_total_view ot
 left join payment_orders po on po.order_id = ot.order_id
-where ot.type = 'sale'
+where ot.type in ('sale', 'purchase')
   and ot.status = 'confirmed'
 group by
-  ot.order_id, ot.partner_id, ot.order_no, ot.order_date, ot.order_total;
+  ot.order_id, ot.partner_id, ot.order_no, ot.order_date, ot.order_total, ot.type;
 
 -- 未收清單：用 outstanding_amount > 0 判定，部分收款的單仍留在清單。
+-- 只留出貨單：這支是「應收」的定義來源（unpaid_order_view、追款清單都建在它上面），
+-- 應付混進來會讓供應商被當成要追款的對象。未付進貨單直接查 order_payment_summary_view。
 create view outstanding_order_view as
 select
   s.order_id as id,
@@ -283,7 +289,8 @@ select
   s.outstanding_amount,
   s.payment_status
 from order_payment_summary_view s
-where s.outstanding_amount > 0;
+where s.type = 'sale'
+  and s.outstanding_amount > 0;
 
 -- 相容層：舊前端仍查 unpaid_order_view，欄位名 order_total 對齊舊版。
 create view unpaid_order_view as
@@ -329,7 +336,7 @@ select
     - coalesce(o.discount, 0)
     + coalesce(o.tax, 0))::numeric(12,2) as total_amount,
   case
-    when o.type = 'sale' and o.status = 'confirmed'
+    when o.type in ('sale', 'purchase') and o.status = 'confirmed'
       then coalesce(ops.payment_status, 'unpaid')
     else null
   end as payment_status,
@@ -467,7 +474,9 @@ select
   alloc.top_order_no,
   alloc.top_order_date,
   alloc.top_item_name,
-  coalesce(alloc.top_item_count, 0) as top_item_count
+  coalesce(alloc.top_item_count, 0) as top_item_count,
+  -- patch-027 追加：收付款同表，前端依此分「收款（customer）／付款（supplier）」兩個分頁。
+  pt.type as partner_type
 from payments pay
 left join partners pt on pt.id = pay.partner_id
 left join (
@@ -839,7 +848,7 @@ begin
 end $$;
 
 -- 編輯單據備註（已確認/草稿皆可，作廢不可）
--- payment_status 由收款紀錄推導，一律拒絕寫入；保留參數只為相容舊前端。
+-- payment_status 由收付款紀錄推導，一律拒絕寫入；保留參數只為相容舊前端。
 create or replace function update_order_meta(
   p_order_id       uuid,
   p_note           text default null,
@@ -852,7 +861,7 @@ declare
   v_status text;
 begin
   if p_payment_status is not null then
-    raise exception 'PAYMENT_STATUS_READONLY: 付款狀態由收款紀錄推導，請至收款管理新增或修改收款';
+    raise exception 'PAYMENT_STATUS_READONLY: 付款狀態由收付款紀錄推導，請至收付款管理新增或修改';
   end if;
 
   select status into v_status
@@ -877,8 +886,9 @@ end $$;
 -- 5.4 收款分配 RPC + 驗證
 -- ----------------------------------------
 
--- 原子儲存收款 + 逐單分配（取代前端三段式呼叫，任一段失敗都會留下不一致資料）。
+-- 原子儲存收付款 + 逐單分配（取代前端三段式呼叫，任一段失敗都會留下不一致資料）。
 -- 單號一律在 DB 端產生，避免前端併發產生重號。
+-- 對象為客戶即收款、為供應商即付款（patch-027），方向不另傳參數，由對象類型決定。
 create or replace function save_payment_with_allocations(
   p_partner_id   uuid,
   p_payment_date date,
@@ -910,10 +920,10 @@ begin
 
   select true into v_partner_ok
   from partners
-  where id = p_partner_id and type = 'customer';
+  where id = p_partner_id and type in ('customer', 'supplier');
 
   if not found then
-    raise exception 'PAYMENT_PARTNER_INVALID: 收款對象必須是客戶';
+    raise exception 'PAYMENT_PARTNER_INVALID: 找不到此往來對象';
   end if;
 
   if p_payment_id is null then
@@ -965,8 +975,8 @@ begin
   -- 交易 commit 時，constraint trigger 會驗證：
   --   1. 分配總額 <= 收款金額
   --   2. 每張單分配總額 <= 單據金額
-  --   3. 收款客戶 = 單據客戶
-  --   4. 只能沖已確認的出貨單
+  --   3. 收付款對象 = 單據對象
+  --   4. 只能沖已確認的出貨單／進貨單，且方向相符（客戶沖出貨、供應商沖進貨）
   return v_payment_id;
 end $$;
 
@@ -982,6 +992,7 @@ declare
   v_order_id          uuid;
   v_payment_amount    numeric(12,2);
   v_payment_partner   uuid;
+  v_partner_type      text;
   v_payment_allocated numeric(12,2);
   v_order_total       numeric(12,2);
   v_order_partner     uuid;
@@ -993,10 +1004,11 @@ begin
   v_order_id   := coalesce(new.order_id,   old.order_id);
 
   -- 收款可能在同一交易被刪除（例如 on delete cascade），此時無需驗證
-  select amount, partner_id
-    into v_payment_amount, v_payment_partner
-  from payments
-  where id = v_payment_id;
+  select pay.amount, pay.partner_id, pt.type
+    into v_payment_amount, v_payment_partner, v_partner_type
+  from payments pay
+  left join partners pt on pt.id = pay.partner_id
+  where pay.id = v_payment_id;
 
   if found then
     select coalesce(sum(amount), 0)::numeric(12,2)
@@ -1016,8 +1028,15 @@ begin
   where order_id = v_order_id;
 
   if found then
-    if v_order_type <> 'sale' or v_order_status <> 'confirmed' then
-      raise exception 'ALLOCATION_TARGET_INVALID: 只能沖帳已確認的出貨單';
+    if v_order_type not in ('sale', 'purchase') or v_order_status <> 'confirmed' then
+      raise exception 'ALLOCATION_TARGET_INVALID: 只能沖帳已確認的出貨單或進貨單';
+    end if;
+
+    -- 對象一致性只擋得住「單據 partner_id 不同」；單據沒掛對象（partner_id 為 null）時
+    -- 會放行，因此方向要另外驗：客戶的收款沖進貨單會讓應付憑空被「收」掉。
+    if v_partner_type is not null
+       and (v_partner_type = 'customer') <> (v_order_type = 'sale') then
+      raise exception 'ALLOCATION_DIRECTION_MISMATCH: 客戶只能沖出貨單、供應商只能沖進貨單';
     end if;
 
     select coalesce(sum(amount), 0)::numeric(12,2)
@@ -1033,7 +1052,7 @@ begin
     if v_payment_partner is not null
        and v_order_partner is not null
        and v_payment_partner <> v_order_partner then
-      raise exception 'ALLOCATION_PARTNER_MISMATCH: 收款客戶與單據客戶不一致';
+      raise exception 'ALLOCATION_PARTNER_MISMATCH: 收付款對象與單據對象不一致';
     end if;
   end if;
 
@@ -1289,15 +1308,20 @@ as $$
   order by o.order_date desc, o.order_no desc, oi.id desc;
 $$;
 
--- 客戶應收餘額（截至指定日期、可依客戶或關鍵字篩選、由前端分頁）
+-- 客戶應收／供應商應付餘額（截至指定日期、可依對象或關鍵字篩選、由前端分頁）
 -- 口徑選「期末快照」而非「期間發生額」：積欠但近期沒下單的客戶餘額才不會顯示 0。
 -- 三個 CTE 的截止日必須一致，只截其中一側會讓 unallocated_credit 變負數。
 -- p_partner_id / p_keyword 凌駕 p_include_settled：明確指定就必須看得到，即使已結清。
+-- p_partner_type（patch-027）：'supplier' 時改算進貨單與付款＝應付。回傳欄位名稱沿用
+-- total_sales（此時代表進貨總額）、total_paid（已付）不改名，既有呼叫端才不必跟著改。
+-- 加參數必須先 drop：create or replace 會留下舊的 4 參數版成為重載，具名呼叫時 ambiguous。
+drop function if exists get_partner_balances(date, uuid, boolean, text);
 create or replace function get_partner_balances(
   p_as_of date default null,
   p_partner_id uuid default null,
   p_include_settled boolean default false,
-  p_keyword text default null
+  p_keyword text default null,
+  p_partner_type text default 'customer'
 ) returns table (
   id uuid,
   partner_no text,
@@ -1331,7 +1355,7 @@ as $$
   sales as (
     select ot.partner_id, sum(ot.order_total)::numeric(12,2) as total_sales
     from order_total_view ot
-    where ot.type = 'sale'
+    where ot.type = case when p_partner_type = 'supplier' then 'purchase' else 'sale' end
       and ot.status = 'confirmed'
       and (p_as_of is null or ot.order_date <= p_as_of)
     group by ot.partner_id
@@ -1366,7 +1390,7 @@ as $$
   left join sales     s  on s.partner_id  = p.id
   left join paid      pa on pa.partner_id = p.id
   left join allocated al on al.partner_id = p.id
-  where p.type = 'customer'
+  where p.type = p_partner_type
     and (p_partner_id is null or p.id = p_partner_id)
     and (
       pt.like_pattern is null
@@ -1703,7 +1727,9 @@ as $$
   left join cur_sales  cs on cs.partner_id = p.id
   left join cur_paid   cp on cp.partner_id = p.id
   left join prev_sales ps on ps.partner_id = p.id
-  left join prev_paid  pp on pp.partner_id = p.id;
+  left join prev_paid  pp on pp.partner_id = p.id
+  -- payments 收付款同表（patch-027），cur_paid 會帶進付過款的供應商，必須只留客戶。
+  where p.type = 'customer';
 $$;
 
 
