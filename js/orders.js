@@ -10,6 +10,8 @@ let productsCache = [];
 let partnersCache = [];
 let editingOrderId = null;
 let editingOrderStatus = null;
+let editingParentId = null;
+let parentOptionsRequest = 0;
 let pendingAutoExpand = false;
 let printSelection = null;
 
@@ -200,6 +202,17 @@ function renderOrdersTable() {
   const hasPaymentStatus = (order) =>
     (order.type === 'sale' || order.type === 'purchase') && order.status === 'confirmed';
 
+  // 分批進出貨（patch-028）：接續單標原單號、原單標張數，點了篩出整組。
+  const batchLink = (order) => {
+    let label = '';
+    if (order.parent_order_id) label = `接續 ${order.group_root_no}`;
+    else if (Number(order.group_size) > 1) label = `共 ${Number(order.group_size)} 批`;
+    if (!label) return '';
+    return `
+      <a href="#" class="payment-link batch-link" data-root-no="${escapeHtml(order.group_root_no)}"
+         style="font-size: 0.8rem;" title="篩出同一批的單據">${escapeHtml(label)}</a>`;
+  };
+
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
       ${printSelection.checkboxCell(order.id, order.type === 'sale' && order.status !== 'void')}
@@ -207,6 +220,7 @@ function renderOrdersTable() {
       <td>
         ${itemSummary(order.top_item_name, order.item_count)}
         <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
+        ${batchLink(order)}
       </td>
       <td>${typeMap[order.type]} ${statusMap[order.status]}</td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
@@ -236,6 +250,21 @@ function renderOrdersTable() {
       if (e.target.closest('.col-pick')) return;
       if (e.target.closest('.payment-link')) return;
       toggleOrderDetail(row.getAttribute('data-id'), row);
+    });
+  });
+
+  // 篩整組靠 search_text 併入的原單號（order_search_view），不另開查詢條件。
+  // 日期與付款狀態一併清掉：分批到貨常跨月，原單又可能已付清，留著會把同組的單濾掉。
+  document.querySelectorAll('.batch-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      searchKeyword.value = link.getAttribute('data-root-no');
+      searchDateFrom.value = '';
+      searchDateTo.value = '';
+      searchPayment.value = 'all';
+      currentPage = 1;
+      loadOrders();
     });
   });
 
@@ -461,6 +490,76 @@ function updatePartnerDropdown() {
     filtered.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
 }
 
+const PARENT_HINT = '分批到貨時選擇原單，列表與付款時會歸為同一組';
+
+// 回傳已跳脫的 HTML：itemSummary 本身就會跳脫品名。
+function parentOptionHtml(o) {
+  const voided = o.status === 'void' ? '（已作廢）' : '';
+  return `${formatDate(o.order_date)} ${escapeHtml(o.order_no)}${voided}｜`
+    + `${itemSummary(o.top_item_name, o.item_count)}｜${formatCurrency(o.total_amount)}`;
+}
+
+// 候選只列同類型、同對象、已確認的原單：接續單不能再被接續（兩層限制，見 guard_order_parent）。
+// 規則以 DB trigger 為準，這裡只是不讓使用者選到注定會被擋的單。
+// 切換往來對象時會連續觸發，用流水號丟棄過期的回應，免得選單被舊對象的結果蓋掉。
+async function loadParentOptions(selectedId = '') {
+  const group = document.getElementById('order-parent-group');
+  const select = document.getElementById('order-parent');
+  const type = document.getElementById('order-type').value;
+  const partnerId = document.getElementById('order-partner').value;
+  const request = ++parentOptionsRequest;
+
+  group.hidden = type !== 'purchase' && type !== 'sale';
+  select.innerHTML = '<option value="">（新的一批）</option>';
+  select.value = '';
+  if (group.hidden || !partnerId) return;
+
+  try {
+    const columns = 'id, order_no, order_date, status, top_item_name, item_count, total_amount';
+    let query = sb.from('order_search_view')
+      .select(columns)
+      .eq('type', type)
+      .eq('partner_id', partnerId)
+      .eq('status', 'confirmed')
+      .is('parent_order_id', null)
+      .order('order_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (editingOrderId) query = query.neq('id', editingOrderId);
+
+    const { data, error } = await query;
+    if (error) throw error;
+    if (request !== parentOptionsRequest) return;
+
+    const options = data || [];
+    // 編輯既有接續單時，原單可能已作廢或早於近 50 筆，仍要顯示出來，否則一存檔就被解除接續。
+    if (selectedId && !options.some(o => o.id === selectedId)) {
+      const { data: current, error: currentError } = await sb.from('order_search_view')
+        .select(columns).eq('id', selectedId).maybeSingle();
+      if (currentError) throw currentError;
+      if (request !== parentOptionsRequest) return;
+      if (current) options.unshift(current);
+    }
+
+    select.innerHTML += options
+      .map(o => `<option value="${escapeHtml(o.id)}">${parentOptionHtml(o)}</option>`)
+      .join('');
+    select.value = selectedId || '';
+  } catch (error) {
+    console.error('Error loading parent orders:', error);
+    showToast('載入可接續的單據失敗：' + toErrorMessage(error), 'error');
+  }
+}
+
+// 已有接續單的原單不能再去接續別人（ORDER_HAS_CHILDREN），直接鎖住並說明原因。
+function setParentLocked(order) {
+  const locked = Boolean(order && !order.parent_order_id && Number(order.group_size) > 1);
+  document.getElementById('order-parent').disabled = locked;
+  document.getElementById('order-parent-hint').textContent = locked
+    ? '此單已有接續單，是這組的原單，不能再接續其他單'
+    : PARENT_HINT;
+}
+
 function addLineItem() {
   const container = document.getElementById('order-lines');
   const rowId = Date.now().toString();
@@ -616,6 +715,10 @@ async function openEditOrder(orderId) {
     updatePartnerDropdown();
     document.getElementById('order-partner').value = order.partner_id || '';
 
+    editingParentId = order.parent_order_id || null;
+    await loadParentOptions(editingParentId || '');
+    setParentLocked(order);
+
     items.forEach(item => {
       addLineItem();
       const row = document.getElementById('order-lines').lastElementChild;
@@ -638,30 +741,49 @@ async function openEditOrder(orderId) {
   }
 }
 
-async function saveConfirmedOrderNote() {
+async function saveConfirmedOrderMeta() {
+  const parentId = document.getElementById('order-parent').value || null;
+
   try {
     const { error } = await sb.rpc('update_order_meta', {
       p_order_id: editingOrderId,
       p_note: document.getElementById('order-note').value || ''
     });
     if (error) throw error;
-
-    showToast('備註已更新', 'success');
-    closeModal('order-modal');
-    editingOrderId = null;
-    editingOrderStatus = null;
-    loadOrders();
   } catch (error) {
     console.error('Error updating note:', error);
     showToast('更新失敗：' + toErrorMessage(error), 'error');
+    return;
   }
+
+  // 接續另走 set_order_parent（update_order_meta 的 null 代表不改，表達不了解除）。
+  // 兩支不在同一個交易，備註已存成功時要講清楚是哪一項沒存到，並留在視窗讓使用者改。
+  if (parentId !== editingParentId) {
+    const { error } = await sb.rpc('set_order_parent', {
+      p_order_id: editingOrderId,
+      p_parent_order_id: parentId
+    });
+    if (error) {
+      console.error('Error updating parent order:', error);
+      showToast('備註已更新，但接續單據未更新：' + toErrorMessage(error), 'error');
+      loadOrders();
+      return;
+    }
+  }
+
+  showToast('單據已更新', 'success');
+  closeModal('order-modal');
+  editingOrderId = null;
+  editingOrderStatus = null;
+  editingParentId = null;
+  loadOrders();
 }
 
 async function saveOrder(status = 'confirmed') {
-  // 已確認單據的表頭與明細欄位皆為 disabled，僅備註可改，
+  // 已確認單據的表頭與明細欄位皆為 disabled，僅備註與接續單據可改，
   // 直接走 meta 更新以免誤用整張替換的 RPC。
   if (editingOrderId && editingOrderStatus === 'confirmed') {
-    await saveConfirmedOrderNote();
+    await saveConfirmedOrderMeta();
     return;
   }
 
@@ -703,7 +825,8 @@ async function saveOrder(status = 'confirmed') {
     p_items: items,
     p_order_date: document.getElementById('order-date').value,
     p_discount: parseFloat(document.getElementById('order-discount').value) || 0,
-    p_tax: parseFloat(document.getElementById('order-tax').value) || 0
+    p_tax: parseFloat(document.getElementById('order-tax').value) || 0,
+    p_parent_order_id: document.getElementById('order-parent').value || null
   };
 
   try {
@@ -733,6 +856,7 @@ async function saveOrder(status = 'confirmed') {
     closeModal('order-modal');
     editingOrderId = null;
     editingOrderStatus = null;
+    editingParentId = null;
     loadOrders();
     // Refresh products cache for updated stock
     loadProductsCache();
@@ -785,6 +909,7 @@ function setupEventListeners() {
   document.getElementById('btn-add-order').addEventListener('click', () => {
     editingOrderId = null;
     editingOrderStatus = null;
+    editingParentId = null;
     setOrderModalMode('create');
     document.getElementById('order-form').reset();
     document.getElementById('order-date').value = toDateInputValue(new Date());
@@ -800,6 +925,8 @@ function setupEventListeners() {
     }
     
     updatePartnerDropdown();
+    loadParentOptions();
+    setParentLocked(null);
     addLineItem();
     openModal('order-modal');
   });
@@ -814,11 +941,15 @@ function setupEventListeners() {
     }
     
     updatePartnerDropdown();
+    loadParentOptions();
     // Update prices for existing lines
     document.querySelectorAll('.line-product').forEach(select => {
       select.dispatchEvent(new Event('change'));
     });
   });
+
+  // 原單必須同對象（guard_order_parent），換對象後原本選的原單已不成立。
+  document.getElementById('order-partner').addEventListener('change', () => loadParentOptions());
 
   document.getElementById('btn-add-line').addEventListener('click', addLineItem);
   

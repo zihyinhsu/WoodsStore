@@ -97,6 +97,10 @@ export function toErrorMessage(error) {
   }
   if (raw.includes('ORDER_NOT_FOUND')) return '找不到此單據，可能已被刪除。';
 
+  // 接續原單（patch-028）的訊息在 DB 端已寫成中文並帶上原單單號，去掉代碼前綴即可直接顯示。
+  const parentError = raw.match(/(?:ORDER_PARENT_[A-Z]+|ORDER_HAS_CHILDREN):\s*(.+)/);
+  if (parentError) return parentError[1];
+
   if (raw.includes('PAYMENT_STATUS_READONLY')) {
     return '付款狀態由收付款紀錄自動推導，請至收付款管理新增或修改。';
   }

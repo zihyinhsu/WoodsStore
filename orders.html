@@ -262,7 +262,8 @@
       </div>
       <div class="modal-body">
         <p id="confirmed-edit-hint" class="confirmed-hint" hidden>
-          此單據已確認並計入庫存，僅可修改備註。品項或數量如需更正，請作廢後重開。
+          此單據已確認並計入庫存，僅可修改備註與接續單據。品項或數量如需更正，請作廢後重開；
+          分批到貨請另開新單，並在「接續單據」選擇原單。
         </p>
         <form id="order-form">
           <div class="grid grid-cols-2 gap-3 mb-4">
@@ -287,6 +288,15 @@
             <div class="form-group">
               <label>備註</label>
               <input type="text" id="order-note" class="form-control">
+            </div>
+            <div class="form-group" id="order-parent-group">
+              <label for="order-parent">接續單據</label>
+              <select id="order-parent" class="form-control">
+                <option value="">（新的一批）</option>
+              </select>
+              <span id="order-parent-hint" class="text-muted" style="font-size: 0.8rem; display: block; margin-top: 0.25rem;">
+                分批到貨時選擇原單，列表與付款時會歸為同一組
+              </span>
             </div>
           </div>
 
