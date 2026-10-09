@@ -6,6 +6,7 @@ const SUITES = [
   'statement.test.cjs',
   'orders-edit.test.cjs',
   'payments-modal.test.cjs',
+  'payments-direction.test.cjs',
   'forms.test.cjs',
   'dashboard.test.cjs',
   'products-tabs.test.cjs',
