@@ -1,7 +1,7 @@
 {
   "name": "inventory-app",
   "version": "1.0.0",
-  "description": "藝境裝潢材料行進銷存系統：HTML + Vanilla JS + Supabase，以 Vite 建置的多頁式靜態前端",
+  "description": "藝境裝璜材料行進銷存系統：HTML + Vanilla JS + Supabase，以 Vite 建置的多頁式靜態前端",
   "private": true,
   "scripts": {
     "dev": "vite",

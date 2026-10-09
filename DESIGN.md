@@ -1,4 +1,4 @@
-# 藝境裝潢材料行進銷存 Design System
+# 藝境裝璜材料行進銷存 Design System
 
 本文件由 `css/style.css` 既有實作反推整理，記錄的是「目前程式碼實際使用的值」，
 而非理想值。新增介面一律沿用本表的 token，需要新 token 時先更新本文件。

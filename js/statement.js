@@ -202,7 +202,7 @@ function renderStatementSection(customer, from, to, isActive) {
              ${isActive ? '' : 'hidden'}>
       <div class="statement-preview">
         <div class="statement-header">
-          <h1>藝境裝潢材料行</h1>
+          <h1>藝境裝璜材料行</h1>
           <h2>應收帳款明細表</h2>
         </div>
 

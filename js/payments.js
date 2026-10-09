@@ -918,7 +918,7 @@ async function paymentSlipHtml(payment) {
 
   return `
     <div class="print-doc-header">
-      <h1>藝境裝潢材料行</h1>
+      <h1>藝境裝璜材料行</h1>
       <h2>收款單</h2>
     </div>
     <div class="print-info-box">

@@ -1,6 +1,6 @@
 # 專案開發約定
 
-藝境裝潢材料行進銷存系統。HTML + Vanilla JS（ES Modules）+ Supabase，Vite 建置的多頁式靜態站。
+藝境裝璜材料行進銷存系統。HTML + Vanilla JS（ES Modules）+ Supabase，Vite 建置的多頁式靜態站。
 架構總覽與部署方式見 `README.md`，設計系統見 `DESIGN.md`；這份文件只記錄「動手改程式前必須知道的規則」。
 
 ## 一、寫新函式前，先查 `js/utils.js`
