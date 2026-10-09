@@ -14,6 +14,15 @@ export function formatCurrency(amount) {
   }).format(amount || 0);
 }
 
+// 同 formatCurrency 的千分位與取整，但不帶 $：列印單據的金額欄已由表頭標明，
+// 每格都印貨幣符號在窄欄的複寫紙上只是雜訊。
+export function formatAmount(amount) {
+  return new Intl.NumberFormat('zh-TW', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(amount || 0);
+}
+
 export function formatDate(dateString) {
   if (!dateString) return '';
   const date = new Date(dateString);

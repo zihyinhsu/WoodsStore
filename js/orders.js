@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -600,18 +600,18 @@ function shippingSlipHtml(order, items, partner, balance) {
             <td>${escapeHtml(item.products.spec || '')}</td>
             <td>${Math.abs(item.qty)}</td>
             <td>${escapeHtml(item.products.unit || '')}</td>
-            <td>${formatCurrency(item.unit_price)}</td>
-            <td>${formatCurrency(item.subtotal)}</td>
+            <td>${formatAmount(item.unit_price)}</td>
+            <td>${formatAmount(item.subtotal)}</td>
           </tr>
         `).join('')}
         <tr>
           <td colspan="5" style="text-align: right; font-weight: bold;">明細合計</td>
-          <td style="font-weight: bold;">${formatCurrency(itemsTotal)}</td>
+          <td style="font-weight: bold;">${formatAmount(itemsTotal)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
         <tr>
           <td colspan="5" style="text-align: right; font-weight: bold;">應收餘額</td>
-          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
+          <td style="font-weight: bold;">${formatAmount(balance)}</td>
         </tr>` : ''}
       </tbody>
     </table>

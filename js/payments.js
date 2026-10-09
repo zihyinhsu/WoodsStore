@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -1047,8 +1047,8 @@ async function paymentSlipHtml(payment) {
           <td>${escapeHtml(line.spec || '')}</td>
           <td>${escapeHtml(line.qty)}</td>
           <td>${escapeHtml(line.unit || '')}</td>
-          <td>${formatCurrency(line.unit_price)}</td>
-          <td>${formatCurrency(line.subtotal)}</td>
+          <td>${formatAmount(line.unit_price)}</td>
+          <td>${formatAmount(line.subtotal)}</td>
         </tr>
       `;
     }).join('');
@@ -1065,7 +1065,7 @@ async function paymentSlipHtml(payment) {
           ${rowsHtml}
           <tr>
             <td colspan="7" style="text-align: right; font-weight: bold;">明細合計</td>
-            <td style="font-weight: bold;">${formatCurrency(totalSubtotal)}</td>
+            <td style="font-weight: bold;">${formatAmount(totalSubtotal)}</td>
           </tr>
         </tbody>
       </table>
@@ -1101,12 +1101,12 @@ async function paymentSlipHtml(payment) {
           <td>${formatDate(payment.payment_date)}</td>
           <td>${methodMap[payment.method] || escapeHtml(payment.method)}</td>
           <td>${escapeHtml(payment.note || '')}</td>
-          <td>${formatCurrency(payment.amount)}</td>
+          <td>${formatAmount(payment.amount)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
         <tr>
           <td colspan="3" style="text-align: right; font-weight: bold;">收款後應收餘額</td>
-          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
+          <td style="font-weight: bold;">${formatAmount(balance)}</td>
         </tr>` : ''}
       </tbody>
     </table>

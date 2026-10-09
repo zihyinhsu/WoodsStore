@@ -29,7 +29,7 @@
 
 先看這份清單，再決定要不要新增：
 
-`PAGE_SIZE`、`formatCurrency`、`formatDate`、`toDateInputValue`、`dateRange`、`debounce`、
+`PAGE_SIZE`、`formatCurrency`、`formatAmount`、`formatDate`、`toDateInputValue`、`dateRange`、`debounce`、
 `escapeHtml`、`round2`、`sum`、`groupBy`、`totalPages`
 
 ## 二、日期：禁用 `toISOString()` 取日期字串
