@@ -1118,8 +1118,9 @@ tbody tr.clickable-row {
      break-inside: avoid 會把下一張推到新的一頁，不會從中間被切開。 */
   .print-slip {
     min-height: 5.5in;
-    /* 左右 0.6in 避開兩側送紙孔 */
-    padding: 0.3in 0.6in;
+    /* 左右合計 1.2in 避開兩側送紙孔。點陣印表機左側有印不到的硬體偏移，對稱留白實際印出來會偏右，
+       所以左少右多把內容往左挪；之後若換印表機或曳引器位置，量左右空白差值的一半再調這兩個值。 */
+    padding: 0.3in 0.8in 0.3in 0.4in;
     break-inside: avoid;
   }
   #print-area table {
@@ -1165,13 +1166,16 @@ tbody tr.clickable-row {
     margin-bottom: 0.1rem;
   }
   .print-footer {
-    margin-top: 1rem;
+    margin-top: 0.25in;
     display: flex;
     justify-content: flex-end;
   }
+  /* 底線只是 inline 元素的下框線，沒有高度時簽名會壓到上方表格；撐出高度讓底線往下、上方留簽名空間。
+     加高會吃掉半頁的餘裕，明細很多時這張單會長過半頁，下一張被推到新頁（見 .print-slip）。 */
   .signature-line {
     border-bottom: 1px solid black;
     width: 200px;
+    height: 0.45in;
     display: inline-block;
   }
 }
