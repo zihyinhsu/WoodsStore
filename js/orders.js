@@ -5,13 +5,15 @@ import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, deb
 
 let currentPage = 1;
 let totalCount = 0;
-let currentOrders = [];
+let currentRows = [];          // 本頁的列：{ group, members }，逐張顯示時 group 為 null、members 只有一張
+let ordersById = new Map();    // 本頁載入的所有單據（含收在組裡的接續單），編輯、列印、展開都從這裡取
 let productsCache = [];
 let partnersCache = [];
 let editingOrderId = null;
 let editingOrderStatus = null;
 let editingParentId = null;
 let parentOptionsRequest = 0;
+let detailRequest = 0;
 let pendingAutoExpand = false;
 let printSelection = null;
 
@@ -22,6 +24,7 @@ const searchType = document.getElementById('search-type');
 const searchStatus = document.getElementById('search-status');
 const searchPayment = document.getElementById('search-payment');
 const searchKeyword = document.getElementById('search-keyword');
+const searchView = document.getElementById('search-view');
 const btnPrevPage = document.getElementById('btn-prev-page');
 const btnNextPage = document.getElementById('btn-next-page');
 
@@ -30,7 +33,7 @@ async function init() {
   printSelection = setupPrintSelection({
     table: '#orders-table',
     printLabel: '列印出貨單',
-    getItem: id => currentOrders.find(o => o.id === id),
+    getItem: id => ordersById.get(id),
     onPrint: printShippingOrders
   });
 
@@ -47,6 +50,7 @@ async function init() {
   searchStatus.value = urlParams.get('status') || hashParams.get('status') || 'active';
   searchPayment.value = urlParams.get('payment') || hashParams.get('payment') || 'all';
   searchKeyword.value = urlParams.get('q') || hashParams.get('q') || '';
+  searchView.value = urlParams.get('view') === 'flat' ? 'flat' : 'group';
   currentPage = parseInt(urlParams.get('page')) || 1;
   pendingAutoExpand = urlParams.get('expand') === '1';
 
@@ -80,6 +84,7 @@ function updateUrlParams() {
   if (searchStatus.value !== 'active') urlParams.set('status', searchStatus.value);
   if (searchPayment.value !== 'all') urlParams.set('payment', searchPayment.value);
   if (searchKeyword.value) urlParams.set('q', searchKeyword.value);
+  if (searchView.value === 'flat') urlParams.set('view', 'flat');
   if (currentPage > 1) urlParams.set('page', currentPage);
   
   const newUrl = window.location.pathname + (urlParams.toString() ? '?' + urlParams.toString() : '');
@@ -89,47 +94,12 @@ function updateUrlParams() {
 async function loadOrders() {
   updateUrlParams();
   try {
-    let query = sb.from('order_search_view').select('*', { count: 'exact' });
+    const { rows, count } = searchView.value === 'flat' ? await fetchOrderRows() : await fetchGroupRows();
 
-    // Apply filters
-    if (searchDateFrom.value) query = query.gte('order_date', searchDateFrom.value);
-    if (searchDateTo.value) query = query.lte('order_date', searchDateTo.value);
-    
-    if (searchType.value !== 'all') {
-      query = query.eq('type', searchType.value);
-    }
-
-    if (searchStatus.value === 'active') {
-      query = query.in('status', ['draft', 'confirmed']);
-    } else if (searchStatus.value !== 'all') {
-      query = query.eq('status', searchStatus.value);
-    }
-
-    // 付款狀態是推導值（order_search_view 直接輸出 order_payment_summary_view 的結果），
-    // 因此能下推成 SQL 條件，不必把資料撈回瀏覽器過濾，伺服器端分頁與 count 才會正確。
-    // view 只對已確認的出貨單（應收）與進貨單（應付）給值，其餘給 null，
-    // 所以下了條件就自動排除調整／草稿／作廢單；要只看應收或應付，搭配類型條件即可。
-    if (searchPayment.value === 'outstanding') {
-      query = query.in('payment_status', ['unpaid', 'partial']);
-    } else if (searchPayment.value !== 'all') {
-      query = query.eq('payment_status', searchPayment.value);
-    }
-
-    if (searchKeyword.value) {
-      query = query.ilike('search_text', `%${searchKeyword.value}%`);
-    }
-
-    // Pagination
-    const from = (currentPage - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    query = query.order('order_date', { ascending: false }).order('created_at', { ascending: false }).range(from, to);
-
-    const { data, count, error } = await query;
-    if (error) throw error;
-
-    currentOrders = data;
+    currentRows = rows;
+    ordersById = new Map(rows.flatMap(r => r.members).map(o => [o.id, o]));
     totalCount = count;
-    
+
     renderOrdersTable();
     updatePagination();
     autoExpandSingleResult();
@@ -139,22 +109,221 @@ async function loadOrders() {
   }
 }
 
+// 逐張顯示：一張單一列。
+async function fetchOrderRows() {
+  let query = sb.from('order_search_view').select('*', { count: 'exact' });
+
+  // Apply filters
+  if (searchDateFrom.value) query = query.gte('order_date', searchDateFrom.value);
+  if (searchDateTo.value) query = query.lte('order_date', searchDateTo.value);
+
+  if (searchType.value !== 'all') {
+    query = query.eq('type', searchType.value);
+  }
+
+  if (searchStatus.value === 'active') {
+    query = query.in('status', ['draft', 'confirmed']);
+  } else if (searchStatus.value !== 'all') {
+    query = query.eq('status', searchStatus.value);
+  }
+
+  // 付款狀態是推導值（order_search_view 直接輸出 order_payment_summary_view 的結果），
+  // 因此能下推成 SQL 條件，不必把資料撈回瀏覽器過濾，伺服器端分頁與 count 才會正確。
+  // view 只對已確認的出貨單（應收）與進貨單（應付）給值，其餘給 null，
+  // 所以下了條件就自動排除調整／草稿／作廢單；要只看應收或應付，搭配類型條件即可。
+  if (searchPayment.value === 'outstanding') {
+    query = query.in('payment_status', ['unpaid', 'partial']);
+  } else if (searchPayment.value !== 'all') {
+    query = query.eq('payment_status', searchPayment.value);
+  }
+
+  if (searchKeyword.value) {
+    query = query.ilike('search_text', `%${searchKeyword.value}%`);
+  }
+
+  // Pagination
+  const from = (currentPage - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
+  query = query.order('order_date', { ascending: false }).order('created_at', { ascending: false }).range(from, to);
+
+  const { data, count, error } = await query;
+  if (error) throw error;
+
+  return { rows: (data || []).map(order => ({ group: null, members: [order] })), count };
+}
+
+// 合併顯示：接續同一張原單的分批單據合成一列（patch-029）。
+// 篩選與分頁必須以組為單位在 SQL 做：前端藏掉接續單會讓每頁張數錯亂，
+// 日期區間只命中 B 時 A 又被濾掉，整組就消失了。各條件套用的層級見 search_order_groups 的註解。
+async function fetchGroupRows() {
+  const statuses = { active: ['draft', 'confirmed'], all: null }[searchStatus.value]
+    ?? [searchStatus.value];
+
+  const { data: groups, error } = await sb.rpc('search_order_groups', {
+    p_date_from: searchDateFrom.value || null,
+    p_date_to: searchDateTo.value || null,
+    p_type: searchType.value === 'all' ? null : searchType.value,
+    p_statuses: statuses,
+    p_payment: searchPayment.value === 'all' ? null : searchPayment.value,
+    p_keyword: searchKeyword.value || null,
+    p_limit: PAGE_SIZE,
+    p_offset: (currentPage - 1) * PAGE_SIZE
+  });
+  if (error) throw error;
+
+  // 從逐張模式或舊網址帶來的頁碼可能超過組數（組數必然較少），退回第一頁而不是顯示空白。
+  if ((groups || []).length === 0 && currentPage > 1) {
+    currentPage = 1;
+    return fetchGroupRows();
+  }
+
+  const ids = (groups || []).flatMap(g => g.member_ids);
+  let members = [];
+  if (ids.length > 0) {
+    const { data, error: membersError } = await sb.from('order_search_view').select('*').in('id', ids);
+    if (membersError) throw membersError;
+    members = data || [];
+  }
+  const byId = new Map(members.map(o => [o.id, o]));
+
+  // 兩次查詢之間單據可能剛被作廢或刪除，查不到的成員直接略過，不讓整頁失敗。
+  const rows = (groups || [])
+    .map(group => ({ group, members: group.member_ids.map(id => byId.get(id)).filter(Boolean) }))
+    .filter(row => row.members.length > 0);
+
+  return { rows, count: Number(groups?.[0]?.total_count) || 0 };
+}
+
 // 只在命中單筆時展開：q 是對 search_text 模糊比對，也會命中備註等欄位，
 // 多筆全開會把使用者真正要看的那張單淹沒。
 // 旗標用後即清，否則之後每次改搜尋條件都會再自己彈開一次。
+// 合併顯示時命中的是整組，展開後即可看到目標那批。
 function autoExpandSingleResult() {
   if (!pendingAutoExpand) return;
   pendingAutoExpand = false;
 
-  if (currentOrders.length !== 1) return;
+  if (currentRows.length !== 1) return;
 
   const row = document.querySelector('#orders-table .clickable-row');
-  if (row) toggleOrderDetail(row.getAttribute('data-id'), row);
+  if (row) toggleRowDetail(row);
+}
+
+const TYPE_BADGES = {
+  'purchase': '<span class="badge badge-blue">進貨</span>',
+  'sale': '<span class="badge badge-green">出貨</span>',
+  'adjust': '<span class="badge badge-orange">調整</span>'
+};
+
+// data-status 讓樣式與測試不必靠欄位位置定位（類型與狀態同格，索引不再對得上欄名）。
+const STATUS_BADGES = {
+  'draft': '<span class="badge badge-gray" data-status="draft">草稿</span>',
+  'confirmed': '<span class="badge badge-green" data-status="confirmed">已確認</span>',
+  'void': '<span class="badge badge-red" data-status="void">已作廢</span>'
+};
+
+const PAYMENT_LABELS = {
+  'unpaid': '<span class="text-danger">未付款</span>',
+  'partial': '<span class="text-warning">部分付款</span>',
+  'paid': '<span class="text-success">已付款</span>'
+};
+
+const ACTION_BTN_STYLE = 'padding: 0.25rem 0.5rem; font-size: 0.8rem;';
+
+const hasPaymentStatus = (order) =>
+  (order.type === 'sale' || order.type === 'purchase') && order.status === 'confirmed';
+
+function paymentLabel(type, status, paidAmount) {
+  const action = type === 'purchase' ? '付' : '收';
+  const label = PAYMENT_LABELS[status] || PAYMENT_LABELS['unpaid'];
+  const detail = status === 'partial'
+    ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已${action} ${formatCurrency(Number(paidAmount || 0))}</span>`
+    : '';
+  return label + detail;
+}
+
+// 付款狀態由收付款紀錄推導（order_payment_summary_view），不可直接編輯。
+// 點擊導向收付款管理並帶 order_id，讓使用者直接看到／建立對應的收款或付款；
+// 方向由收付款頁依單據類型自行判斷，這裡不必帶 dir。
+function paymentLink(order) {
+  const action = order.type === 'purchase' ? '付' : '收';
+  return `
+    <a href="payments.html?order_id=${encodeURIComponent(order.id)}" class="payment-link"
+       title="查看此單據的${action}款紀錄">${paymentLabel(order.type, order.payment_status, order.paid_amount)}</a>`;
+}
+
+// 分批進出貨（patch-028）：接續單標原單號、原單標張數，點了篩出整組。
+// 合併顯示時多半已收成一列，只有成員被狀態條件濾到剩一張時才會看到。
+function batchLink(order) {
+  let label = '';
+  if (order.parent_order_id) label = `接續 ${order.group_root_no}`;
+  else if (Number(order.group_size) > 1) label = `共 ${Number(order.group_size)} 批`;
+  if (!label) return '';
+  return `
+    <a href="#" class="payment-link batch-link" data-root-no="${escapeHtml(order.group_root_no)}"
+       style="font-size: 0.8rem;" title="篩出同一批的單據">${escapeHtml(label)}</a>`;
+}
+
+function orderActionButtons(order) {
+  const id = escapeHtml(order.id);
+  const buttons = [];
+  if (order.status === 'draft' || order.status === 'confirmed') {
+    buttons.push(`<button class="btn btn-outline btn-edit" data-id="${id}" style="${ACTION_BTN_STYLE}">編輯</button>`);
+  }
+  if (order.status === 'draft') {
+    buttons.push(`<button class="btn btn-primary btn-confirm" data-id="${id}" style="${ACTION_BTN_STYLE}">確認</button>`);
+  }
+  if (order.status !== 'void') {
+    buttons.push(`<button class="btn btn-outline btn-void" data-id="${id}" style="${ACTION_BTN_STYLE}">作廢</button>`);
+  }
+  return buttons.join(' ');
+}
+
+function renderOrderRow(order) {
+  return `
+    <tr class="clickable-row" data-id="${escapeHtml(order.id)}">
+      ${printSelection.checkboxCell(order.id, order.type === 'sale' && order.status !== 'void')}
+      <td>${formatDate(order.order_date)}</td>
+      <td>
+        ${itemSummary(order.top_item_name, order.item_count)}
+        <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
+        ${batchLink(order)}
+      </td>
+      <td>${TYPE_BADGES[order.type]} ${STATUS_BADGES[order.status]}</td>
+      <td>${escapeHtml(order.partner_name || '-')}</td>
+      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
+      <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
+      <td>${orderActionButtons(order)}</td>
+    </tr>
+  `;
+}
+
+// 一組一列：同組必同往來對象（guard_order_parent），對象欄直接顯示供應商／客戶。
+// 組列不放操作鈕：作廢、編輯、列印都是對單張單據，展開後在各批上操作。
+// 付款狀態只顯示不連結：收付款頁的 order_id 只對應單張。
+function renderGroupRow({ group, members }) {
+  const root = members.find(o => o.id === group.group_root_id) || members[0];
+  return `
+    <tr class="clickable-row group-row" data-group-id="${escapeHtml(group.group_root_id)}">
+      ${printSelection.checkboxCell(group.group_root_id, false)}
+      <td>${formatDate(group.order_date)}</td>
+      <td>
+        ${itemSummary(root.top_item_name, root.item_count)}
+        <span class="text-muted" style="font-size: 0.8rem; display: block;">
+          ${escapeHtml(group.group_root_no)} 等 ${members.length} 批
+        </span>
+      </td>
+      <td>${TYPE_BADGES[group.type]} <span class="badge badge-gray">${members.length} 批</span></td>
+      <td>${escapeHtml(group.partner_name || '-')}</td>
+      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(group.total_amount)}</td>
+      <td>${group.payment_status ? paymentLabel(group.type, group.payment_status, group.paid_amount) : '-'}</td>
+      <td><span class="text-muted" style="font-size: 0.8rem;">展開後操作各批</span></td>
+    </tr>
+  `;
 }
 
 function renderOrdersTable() {
   const tbody = document.querySelector('#orders-table tbody');
-  if (currentOrders.length === 0) {
+  if (currentRows.length === 0) {
     // 從收款頁的沖帳明細跳來卻撲空，多半是單號被改過或該單已不存在，
     // 只寫「找不到單據」會讓人以為連結壞了。
     const hint = pendingAutoExpand
@@ -166,90 +335,16 @@ function renderOrdersTable() {
     return;
   }
 
-  const typeMap = {
-    'purchase': '<span class="badge badge-blue">進貨</span>',
-    'sale': '<span class="badge badge-green">出貨</span>',
-    'adjust': '<span class="badge badge-orange">調整</span>'
-  };
+  tbody.innerHTML = currentRows
+    .map(row => (row.members.length > 1 ? renderGroupRow(row) : renderOrderRow(row.members[0])))
+    .join('');
 
-  // data-status 讓樣式與測試不必靠欄位位置定位（類型與狀態同格，索引不再對得上欄名）。
-  const statusMap = {
-    'draft': '<span class="badge badge-gray" data-status="draft">草稿</span>',
-    'confirmed': '<span class="badge badge-green" data-status="confirmed">已確認</span>',
-    'void': '<span class="badge badge-red" data-status="void">已作廢</span>'
-  };
-
-  const paymentMap = {
-    'unpaid': '<span class="text-danger">未付款</span>',
-    'partial': '<span class="text-warning">部分付款</span>',
-    'paid': '<span class="text-success">已付款</span>'
-  };
-
-  // 付款狀態由收付款紀錄推導（order_payment_summary_view），不可直接編輯。
-  // 點擊導向收付款管理並帶 order_id，讓使用者直接看到／建立對應的收款或付款；
-  // 方向由收付款頁依單據類型自行判斷，這裡不必帶 dir。
-  const paymentLink = (order) => {
-    const action = order.type === 'purchase' ? '付' : '收';
-    const label = paymentMap[order.payment_status] || paymentMap['unpaid'];
-    const paid = Number(order.paid_amount || 0);
-    const detail = order.payment_status === 'partial'
-      ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已${action} ${formatCurrency(paid)}</span>`
-      : '';
-    return `
-      <a href="payments.html?order_id=${encodeURIComponent(order.id)}" class="payment-link"
-         title="查看此單據的${action}款紀錄">${label}${detail}</a>`;
-  };
-  const hasPaymentStatus = (order) =>
-    (order.type === 'sale' || order.type === 'purchase') && order.status === 'confirmed';
-
-  // 分批進出貨（patch-028）：接續單標原單號、原單標張數，點了篩出整組。
-  const batchLink = (order) => {
-    let label = '';
-    if (order.parent_order_id) label = `接續 ${order.group_root_no}`;
-    else if (Number(order.group_size) > 1) label = `共 ${Number(order.group_size)} 批`;
-    if (!label) return '';
-    return `
-      <a href="#" class="payment-link batch-link" data-root-no="${escapeHtml(order.group_root_no)}"
-         style="font-size: 0.8rem;" title="篩出同一批的單據">${escapeHtml(label)}</a>`;
-  };
-
-  tbody.innerHTML = currentOrders.map(order => `
-    <tr class="clickable-row" data-id="${order.id}">
-      ${printSelection.checkboxCell(order.id, order.type === 'sale' && order.status !== 'void')}
-      <td>${formatDate(order.order_date)}</td>
-      <td>
-        ${itemSummary(order.top_item_name, order.item_count)}
-        <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
-        ${batchLink(order)}
-      </td>
-      <td>${typeMap[order.type]} ${statusMap[order.status]}</td>
-      <td>${escapeHtml(order.partner_name || '-')}</td>
-      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
-      <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
-      <td>
-        ${order.status === 'draft' ?
-          `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
-           <button class="btn btn-primary btn-confirm" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">確認</button> ` :
-          ''}
-        ${order.status === 'confirmed' ?
-          `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button> ` :
-          ''}
-        ${order.status !== 'void' ?
-          `<button class="btn btn-outline btn-void" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">作廢</button>` :
-          ''}
-      </td>
-    </tr>
-  `).join('');
-
-  // Attach events
   document.querySelectorAll('.clickable-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.classList.contains('btn-void')) return;
-      if (e.target.classList.contains('btn-confirm')) return;
-      if (e.target.classList.contains('btn-edit')) return;
+      if (e.target.closest('button')) return;
       if (e.target.closest('.col-pick')) return;
       if (e.target.closest('.payment-link')) return;
-      toggleOrderDetail(row.getAttribute('data-id'), row);
+      toggleRowDetail(row);
     });
   });
 
@@ -268,35 +363,56 @@ function renderOrdersTable() {
     });
   });
 
-  document.querySelectorAll('.btn-edit').forEach(btn => {
+  bindOrderActions(tbody);
+}
+
+// 列表與展開區塊共用：組展開後各批也有自己的編輯／確認／作廢／列印。
+function bindOrderActions(container) {
+  container.querySelectorAll('.btn-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      openEditOrder(e.target.getAttribute('data-id'));
+      openEditOrder(btn.getAttribute('data-id'));
     });
   });
 
-
-
-  document.querySelectorAll('.btn-confirm').forEach(btn => {
+  container.querySelectorAll('.btn-confirm').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (confirm('確定要讓此草稿生效嗎？生效後將計入庫存。')) {
-        await confirmOrder(e.target.getAttribute('data-id'));
+        await confirmOrder(btn.getAttribute('data-id'));
       }
     });
   });
 
-  document.querySelectorAll('.btn-void').forEach(btn => {
+  container.querySelectorAll('.btn-void').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       if (confirm('確定要作廢此單據嗎？庫存將會自動回沖。')) {
-        await voidOrder(e.target.getAttribute('data-id'));
+        await voidOrder(btn.getAttribute('data-id'));
       }
+    });
+  });
+
+  container.querySelectorAll('.btn-print-shipping').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const order = ordersById.get(btn.getAttribute('data-id'));
+      if (order) printShippingOrders([order]);
     });
   });
 }
 
-async function toggleOrderDetail(orderId, rowElement) {
+function toggleRowDetail(row) {
+  if (row.classList.contains('group-row')) {
+    const entry = currentRows.find(r => r.group?.group_root_id === row.getAttribute('data-group-id'));
+    if (entry) toggleDetail(row, () => buildGroupDetail(entry.members));
+  } else {
+    const order = ordersById.get(row.getAttribute('data-id'));
+    if (order) toggleDetail(row, () => buildOrderDetail(order));
+  }
+}
+
+async function toggleDetail(rowElement, buildDetail) {
   const nextRow = rowElement.nextElementSibling;
   if (nextRow && nextRow.classList.contains('detail-row')) {
     nextRow.remove();
@@ -315,62 +431,102 @@ async function toggleOrderDetail(orderId, rowElement) {
   document.querySelectorAll('.detail-open').forEach(el => el.classList.remove('detail-open'));
   rowElement.classList.add('detail-open');
 
+  // 連點三下時，第一次與第三次的載入會同時在跑，兩者回來時列都是展開狀態，
+  // 只看 detail-open 會插入兩列明細。以序號只讓最後一次請求插入。
+  const request = ++detailRequest;
+
   try {
-    const { data, error } = await sb
-      .from('order_items')
-      .select('*, products(name, sku, spec, unit)')
-      .eq('order_id', orderId);
-    
-    if (error) throw error;
+    const html = await buildDetail();
+    if (request !== detailRequest || !rowElement.classList.contains('detail-open')) return;
 
-    const order = currentOrders.find(o => o.id === orderId);
-    const isSale = order && order.type === 'sale';
-
-    const detailHtml = `
+    rowElement.insertAdjacentHTML('afterend', `
       <tr class="detail-row">
-        <td colspan="8" style="padding: 1rem 2rem;">
-          <div class="d-flex justify-between align-center mb-2">
-            <h4 style="margin: 0;">單據明細</h4>
-            ${isSale ? `<button class="btn btn-outline btn-print-shipping" data-id="${orderId}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印出貨單</button>` : ''}
-          </div>
-          <table class="detail-table">
-            <thead>
-              <tr>
-                <th>商品</th>
-                <th>數量</th>
-                <th>單價</th>
-                <th>折扣(%)</th>
-                <th>小計</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${data.map(item => `
-                <tr>
-                  <td>${escapeHtml(item.products.name)} <span class="text-muted">(${escapeHtml(item.products.sku)})</span></td>
-                  <td>${Math.abs(item.qty)} ${escapeHtml(item.products.unit)}</td>
-                  <td>${formatCurrency(item.unit_price)}</td>
-                  <td>${item.discount}</td>
-                  <td>${formatCurrency(item.subtotal)}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </td>
+        <td colspan="8" style="padding: 1rem 2rem;">${html}</td>
       </tr>
-    `;
-    
-    rowElement.insertAdjacentHTML('afterend', detailHtml);
-
-    if (isSale) {
-      const printBtn = rowElement.nextElementSibling.querySelector('.btn-print-shipping');
-      if (printBtn) {
-        printBtn.addEventListener('click', () => printShippingOrders([order]));
-      }
-    }
+    `);
+    bindOrderActions(rowElement.nextElementSibling);
   } catch (error) {
+    if (request !== detailRequest) return;
     rowElement.classList.remove('detail-open');
     showToast('載入明細失敗：' + toErrorMessage(error), 'error');
   }
+}
+
+async function loadItemsByOrder(orderIds) {
+  const { data, error } = await sb
+    .from('order_items')
+    .select('*, products(name, sku, spec, unit)')
+    .in('order_id', orderIds);
+  if (error) throw error;
+  return groupBy(data || [], 'order_id');
+}
+
+function printButton(order) {
+  if (order.type !== 'sale' || order.status === 'void') return '';
+  return `<button class="btn btn-outline btn-print-shipping" data-id="${escapeHtml(order.id)}" style="${ACTION_BTN_STYLE}">列印出貨單</button>`;
+}
+
+function renderItemsTable(items) {
+  return `
+    <table class="detail-table">
+      <thead>
+        <tr>
+          <th>商品</th>
+          <th>數量</th>
+          <th>單價</th>
+          <th>折扣(%)</th>
+          <th>小計</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(item => `
+          <tr>
+            <td>${escapeHtml(item.products.name)} <span class="text-muted">(${escapeHtml(item.products.sku)})</span></td>
+            <td>${Math.abs(item.qty)} ${escapeHtml(item.products.unit)}</td>
+            <td>${formatCurrency(item.unit_price)}</td>
+            <td>${item.discount}</td>
+            <td>${formatCurrency(item.subtotal)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+async function buildOrderDetail(order) {
+  const itemsByOrder = await loadItemsByOrder([order.id]);
+  return `
+    <div class="d-flex justify-between align-center mb-2">
+      <h4 style="margin: 0;">單據明細</h4>
+      ${printButton(order)}
+    </div>
+    ${renderItemsTable(itemsByOrder.get(order.id) || [])}
+  `;
+}
+
+// 組展開：逐批列出，每批是獨立單據（各自的狀態、付款、操作與明細），
+// 因為庫存與沖帳都以單張為單位，作廢 B 不能連帶作廢 A。
+async function buildGroupDetail(members) {
+  const itemsByOrder = await loadItemsByOrder(members.map(o => o.id));
+  return members.map(order => `
+    <div class="batch-block" data-id="${escapeHtml(order.id)}" style="margin-bottom: 1.25rem;">
+      <div class="d-flex justify-between align-center mb-2" style="gap: 0.75rem; flex-wrap: wrap;">
+        <div>
+          <strong>${formatDate(order.order_date)}</strong>
+          <span class="text-muted" style="margin: 0 0.5rem;">${escapeHtml(order.order_no)}</span>
+          ${STATUS_BADGES[order.status]}
+          ${order.parent_order_id ? '' : '<span class="badge badge-gray">原單</span>'}
+        </div>
+        <div class="d-flex align-center" style="gap: 0.75rem; flex-wrap: wrap;">
+          <span style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</span>
+          ${hasPaymentStatus(order) ? paymentLink(order) : ''}
+          ${orderActionButtons(order)}
+          ${printButton(order)}
+        </div>
+      </div>
+      ${renderItemsTable(itemsByOrder.get(order.id) || [])}
+    </div>
+  `).join('');
 }
 
 // 明細與客戶資料一次撈齊再組版：多張一起印時逐張查詢會慢到列印對話框遲遲不出來。
@@ -681,7 +837,7 @@ function setLineItemsReadonly(readonly) {
 }
 
 async function openEditOrder(orderId) {
-  const order = currentOrders.find(o => o.id === orderId);
+  const order = ordersById.get(orderId);
   if (!order) return;
 
   if (order.status === 'void') {
@@ -873,7 +1029,7 @@ function setupEventListeners() {
     loadOrders();
   }, 300);
 
-  [searchDateFrom, searchDateTo, searchType, searchStatus, searchPayment].forEach(el => {
+  [searchDateFrom, searchDateTo, searchType, searchStatus, searchPayment, searchView].forEach(el => {
     el.addEventListener('change', () => { currentPage = 1; loadOrders(); });
   });
   
