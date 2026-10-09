@@ -263,8 +263,8 @@ export function onReady(fn) {
   }
 }
 
-// 出貨單／收款單印在中一刀複寫三聯報表紙上，每張單佔半頁、一頁兩張（尺寸見 style.css 的 .print-slip）。
-// 每張單只印一次：三聯是複寫紙自己壓出來的，程式重複印反而會浪費一整格。
+// 出貨單／收款單印在中二刀複寫三聯報表紙上，一頁一張單（尺寸見 style.css 的 @page slip）。
+// 每張單只印一次：三聯是複寫紙自己壓出來的，程式重複印反而會浪費一整張。
 export function printSlips(slipHtmls) {
   const printArea = document.getElementById('print-area');
   printArea.innerHTML = slipHtmls
@@ -275,11 +275,11 @@ export function printSlips(slipHtmls) {
 
 const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
-// 列表勾選多張單一起印，湊滿一頁兩格才不浪費報表紙。
+// 列表勾選多張單一起印，一次送進連續報表紙，不必逐張開列印對話框。
 // 勾選欄獨立放在最左、列印鈕放在表格上方的選取工具列（有勾選才出現），
 // 不和每列的編輯／作廢擠在一起：勾選是「選這一列」，按鈕是「立刻執行」，混放容易誤點。
 //
-// 選取存在 Map 而非讀 DOM：換頁、改搜尋條件後表身會重繪，勾過的單仍要保留，跨頁也能湊成一頁；
+// 選取存在 Map 而非讀 DOM：換頁、改搜尋條件後表身會重繪，勾過的單仍要保留，跨頁也能一起印；
 // 也因此工具列要有「清除選取」，否則得翻回每一頁逐一取消。
 // 表頭第一格要放 .print-pick-all（見 orders.html），各列第一格用回傳的 checkboxCell 產生。
 export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
@@ -313,8 +313,8 @@ export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
   const sync = () => {
     const n = selected.size;
     bar.hidden = n === 0;
-    // 一頁中一刀放兩張單，放紙前就知道要準備幾張
-    countEl.textContent = `已選 ${n} 張，需中一刀 ${Math.ceil(n / 2)} 頁`;
+    // 一頁中二刀放一張單，放紙前就知道要準備幾張（明細過長接到下一頁時會再多用）
+    countEl.textContent = `已選 ${n} 張，需中二刀 ${n} 張`;
 
     const inputs = pageInputs();
     const checked = inputs.filter(i => i.checked).length;
