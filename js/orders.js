@@ -105,7 +105,8 @@ async function loadOrders() {
 
     // 付款狀態是推導值（order_search_view 直接輸出 order_payment_summary_view 的結果），
     // 因此能下推成 SQL 條件，不必把資料撈回瀏覽器過濾，伺服器端分頁與 count 才會正確。
-    // view 對「非已確認出貨單」給 null，所以下了條件就自動排除進貨／調整／草稿／作廢單。
+    // view 只對已確認的出貨單（應收）與進貨單（應付）給值，其餘給 null，
+    // 所以下了條件就自動排除調整／草稿／作廢單；要只看應收或應付，搭配類型條件即可。
     if (searchPayment.value === 'outstanding') {
       query = query.in('payment_status', ['unpaid', 'partial']);
     } else if (searchPayment.value !== 'all') {
@@ -182,18 +183,22 @@ function renderOrdersTable() {
     'paid': '<span class="text-success">已付款</span>'
   };
 
-  // 付款狀態由收款紀錄推導（order_payment_summary_view），不可直接編輯。
-  // 點擊導向收款管理並帶 order_id，讓使用者直接看到／建立對應的收款。
+  // 付款狀態由收付款紀錄推導（order_payment_summary_view），不可直接編輯。
+  // 點擊導向收付款管理並帶 order_id，讓使用者直接看到／建立對應的收款或付款；
+  // 方向由收付款頁依單據類型自行判斷，這裡不必帶 dir。
   const paymentLink = (order) => {
+    const action = order.type === 'purchase' ? '付' : '收';
     const label = paymentMap[order.payment_status] || paymentMap['unpaid'];
     const paid = Number(order.paid_amount || 0);
     const detail = order.payment_status === 'partial'
-      ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已收 ${formatCurrency(paid)}</span>`
+      ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已${action} ${formatCurrency(paid)}</span>`
       : '';
     return `
       <a href="payments.html?order_id=${encodeURIComponent(order.id)}" class="payment-link"
-         title="查看此單據的收款紀錄">${label}${detail}</a>`;
+         title="查看此單據的${action}款紀錄">${label}${detail}</a>`;
   };
+  const hasPaymentStatus = (order) =>
+    (order.type === 'sale' || order.type === 'purchase') && order.status === 'confirmed';
 
   tbody.innerHTML = currentOrders.map(order => `
     <tr class="clickable-row" data-id="${order.id}">
@@ -206,7 +211,7 @@ function renderOrdersTable() {
       <td>${typeMap[order.type]} ${statusMap[order.status]}</td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
-      <td>${order.type === 'sale' && order.status === 'confirmed' ? paymentLink(order) : '-'}</td>
+      <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
       <td>
         ${order.status === 'draft' ?
           `<button class="btn btn-outline btn-edit" data-id="${order.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
