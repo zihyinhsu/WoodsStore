@@ -46,6 +46,74 @@ const methodMap = {
   'check': '支票'
 };
 
+// 收款與付款共用同一套表與沖帳機制（patch-027），差別只在往來對象與用語：
+// 對象是客戶就是收款、沖出貨單；是供應商就是付款、沖進貨單。
+// 用語集中在這裡，頁面上靠 data-dir-text 的 {key} 代換，JS 內則用 dir().key 組字串。
+// 付款先不做列印：收款單的版面與「收款後應收餘額」都是對客戶的，套到供應商不成立。
+const DIRECTIONS = {
+  in: {
+    partnerType: 'customer',
+    action: '收款',
+    partner: '客戶',
+    order: '出貨單',
+    orderKind: '出貨',
+    paid: '已收款',
+    balance: '應收',
+    prepaid: '預收',
+    printable: true
+  },
+  out: {
+    partnerType: 'supplier',
+    action: '付款',
+    partner: '供應商',
+    order: '進貨單',
+    orderKind: '進貨',
+    paid: '已付款',
+    balance: '應付',
+    prepaid: '預付',
+    printable: false
+  }
+};
+
+let direction = 'in';
+const dir = () => DIRECTIONS[direction];
+
+function applyDirectionLabels() {
+  const fill = template => template.replace(/\{(\w+)\}/g, (_, key) => dir()[key] ?? '');
+
+  document.querySelectorAll('[data-dir-text]').forEach(el => {
+    el.textContent = fill(el.getAttribute('data-dir-text'));
+  });
+  document.querySelectorAll('[data-dir-placeholder]').forEach(el => {
+    el.placeholder = fill(el.getAttribute('data-dir-placeholder'));
+  });
+  document.querySelectorAll('.tab-btn[data-dir]').forEach(btn => {
+    const isTarget = btn.getAttribute('data-dir') === direction;
+    btn.classList.toggle('active', isTarget);
+    btn.setAttribute('aria-selected', String(isTarget));
+  });
+}
+
+// 切分頁等於換一批往來對象：上一個方向的對象、單據篩選與勾選列印都不再適用，全部歸零。
+// 日期、方式與關鍵字保留——那是使用者正在看的區間，換方向時通常想對照同一段時間。
+async function selectDirection(next) {
+  if (next === direction) return;
+  direction = next;
+
+  orderFilterId = null;
+  orderFilterNo = null;
+  orderFilterPartnerId = null;
+  autoExpanded = false;
+  searchPartner.value = 'all';
+  currentPage = 1;
+  balancePage = 1;
+  printSelection.clear();
+
+  applyDirectionLabels();
+  await loadPartnersCache();
+  await Promise.all([loadBalances(), loadPayments()]);
+}
+
 async function init() {
   setupResponsiveTable('#payments-table');
   printSelection = setupPrintSelection({
@@ -57,8 +125,11 @@ async function init() {
   setupResponsiveTable('#balance-table');
 
   const urlParams = new URLSearchParams(window.location.search);
+  direction = urlParams.get('dir') === 'out' ? 'out' : 'in';
   orderFilterId = urlParams.get('order_id');
+  // 指定單據時方向以單據類型為準（進貨單＝付款），不信任網址上的 dir
   if (orderFilterId) await loadOrderFilterNo();
+  applyDirectionLabels();
 
   // 指定單據時不套預設區間：該單的收款可能發生在 30 天前，
   // 預設區間會把它濾掉，使用者從單據頁點過來就只看到空表。
@@ -77,7 +148,7 @@ async function init() {
 }
 
 async function loadPartnersCache() {
-  const { data } = await sb.from('partners').select('*').eq('type', 'customer').order('partner_no');
+  const { data } = await sb.from('partners').select('*').eq('type', dir().partnerType).order('partner_no');
   partnersCache = data || [];
 
   const options = partnersCache.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
@@ -98,8 +169,8 @@ function balanceAsOf() {
 
 function renderBalanceHint(asOf, partnerId) {
   const scopes = [];
-  if (orderFilterId && orderFilterPartnerId) scopes.push('僅顯示該單據客戶');
-  else if (partnerId) scopes.push('已依上方客戶條件篩選');
+  if (orderFilterId && orderFilterPartnerId) scopes.push(`僅顯示該單據${dir().partner}`);
+  else if (partnerId) scopes.push(`已依上方${dir().partner}條件篩選`);
   if (balanceKeyword.value.trim()) scopes.push('已套用關鍵字');
   const scope = scopes.length ? `${scopes.join('、')}，` : '';
   balanceAsOfHint.textContent = `${scope}統計截至 ${formatDate(asOf)} 的累計金額，不受開始日期影響。`;
@@ -130,7 +201,8 @@ async function loadBalances() {
         p_as_of: asOf,
         p_partner_id: partnerId,
         p_include_settled: toggleSettled.checked,
-        p_keyword: balanceKeyword.value.trim() || null
+        p_keyword: balanceKeyword.value.trim() || null,
+        p_partner_type: dir().partnerType
       }, { count: 'exact' })
       // 排序在這裡再指定一次，不是多餘的：SQL function 被 inline 後外層會多包
       // 一層 SELECT，函式內的 ORDER BY 不保證留存，翻頁會出現重複或漏列。
@@ -154,11 +226,12 @@ function renderBalancesTable(rows) {
 
   if (rows.length === 0) {
     const keyword = balanceKeyword.value.trim();
+    const { partner } = dir();
     const message = keyword
-      ? `找不到符合「${escapeHtml(keyword)}」的客戶。`
+      ? `找不到符合「${escapeHtml(keyword)}」的${partner}。`
       : toggleSettled.checked
-        ? '無客戶資料'
-        : '所有客戶均已結清，可勾選「顯示已結清客戶」檢視全部。';
+        ? `無${partner}資料`
+        : `所有${partner}均已結清，可勾選「顯示已結清${partner}」檢視全部。`;
     tbody.innerHTML = `<tr><td colspan="5" class="empty-state">${message}</td></tr>`;
     return;
   }
@@ -186,7 +259,7 @@ function updateBalancePagination() {
     page: balancePage,
     total: balanceTotal,
     pageSize: PAGE_SIZE,
-    unit: '位客戶',
+    unit: `位${dir().partner}`,
     pageInfoId: 'balance-page-info',
     prevId: 'btn-balance-prev',
     nextId: 'btn-balance-next'
@@ -195,6 +268,7 @@ function updateBalancePagination() {
 
 function updateUrlParams() {
   const urlParams = new URLSearchParams();
+  if (direction === 'out') urlParams.set('dir', 'out');
   if (orderFilterId) urlParams.set('order_id', orderFilterId);
   if (searchDateFrom.value) urlParams.set('from', searchDateFrom.value);
   if (searchDateTo.value) urlParams.set('to', searchDateTo.value);
@@ -210,12 +284,14 @@ function updateUrlParams() {
 async function loadOrderFilterNo() {
   try {
     const { data, error } = await sb.from('order_search_view')
-      .select('order_no, partner_id')
+      .select('order_no, partner_id, type')
       .eq('id', orderFilterId)
       .single();
     if (error) throw error;
     orderFilterNo = data?.order_no || null;
     orderFilterPartnerId = data?.partner_id || null;
+    if (data?.type === 'purchase') direction = 'out';
+    else if (data?.type === 'sale') direction = 'in';
   } catch (error) {
     console.error('Error loading filtered order:', error);
     orderFilterNo = null;
@@ -235,7 +311,7 @@ function renderOrderFilterNotice() {
   orderFilterNotice.style.display = '';
   orderFilterNotice.innerHTML = `
     <div class="d-flex justify-between align-center" style="border: 2px solid var(--border-color); padding: 0.5rem 1rem; background: var(--bg-page);">
-      <span>目前僅顯示<strong>${label}</strong>的收款紀錄</span>
+      <span>目前僅顯示<strong>${label}</strong>的${dir().action}紀錄</span>
       <button class="btn btn-outline" id="btn-clear-order-filter" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">顯示全部</button>
     </div>`;
 
@@ -257,7 +333,8 @@ async function loadPayments() {
     const from = (currentPage - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    let query = sb.from('payment_search_view').select('*', { count: 'exact' });
+    let query = sb.from('payment_search_view').select('*', { count: 'exact' })
+      .eq('partner_type', dir().partnerType);
 
     if (orderFilterId) query = query.contains('order_ids', [orderFilterId]);
     if (searchDateFrom.value) query = query.gte('payment_date', searchDateFrom.value);
@@ -282,11 +359,11 @@ async function loadPayments() {
     autoExpandFilteredOrder();
   } catch (error) {
     console.error('Error loading payments:', error);
-    showToast('載入收款紀錄失敗：' + toErrorMessage(error), 'error');
+    showToast(`載入${dir().action}紀錄失敗：` + toErrorMessage(error), 'error');
   }
 }
 
-// 商品摘要為主、單號為輔的雙行儲存格（與單據管理同一種呈現）。
+// 商品摘要為主、單號為輔的雙行儲存格（與進出貨管理同一種呈現）。
 // 取不到代表品項時退成單行：沒有明細的單據會是這樣，資料庫尚未套用 patch-025 的
 // 環境也會是這樣，那時每一列頂著一個 '-' 只是噪音，單號才是不能消失的資訊。
 // subline 必須是已跳脫或已成形的 HTML（單號文字或 orderSearchLink 的連結）。
@@ -316,9 +393,11 @@ function orderSummaryCell(payment) {
 function renderPaymentsTable() {
   const tbody = document.querySelector('#payments-table tbody');
   if (currentPayments.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="9" class="empty-state">找不到收款紀錄</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="9" class="empty-state">找不到${dir().action}紀錄</td></tr>`;
     return;
   }
+
+  const { printable } = dir();
 
   // 沒有獨立的「已沖帳」欄：新制的收款金額就是勾選單據的加總，兩者恆等。
   // 只有舊版手動沖帳留下的收款才可能有差額，那時才把未分配的部分標出來。
@@ -326,7 +405,7 @@ function renderPaymentsTable() {
     const unallocated = Number(p.unallocated_amount) || 0;
     return `
     <tr class="clickable-row" data-id="${escapeHtml(p.id)}">
-      ${printSelection.checkboxCell(p.id)}
+      ${printSelection.checkboxCell(p.id, printable)}
       <td>${formatDate(p.payment_date)}</td>
       <td>${escapeHtml(p.payment_no)}</td>
       <td>${orderSummaryCell(p)}</td>
@@ -339,7 +418,7 @@ function renderPaymentsTable() {
       <td>${escapeHtml(p.note || '-')}</td>
       <td>
         <button class="btn btn-outline btn-edit-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
-        <button class="btn btn-outline btn-print" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button>
+        ${printable ? `<button class="btn btn-outline btn-print" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">列印</button>` : ''}
         <button class="btn btn-outline btn-delete-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: var(--danger);">刪除</button>
       </td>
     </tr>`;
@@ -347,7 +426,7 @@ function renderPaymentsTable() {
 
   document.querySelectorAll('#payments-table .clickable-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      // 連結一併排除：出貨單欄的單號會跳到單據管理，
+      // 連結一併排除：單據欄的單號會跳到進出貨管理，
       // 不攔的話離開前還會順手展開明細，回上一頁就多了一列莫名其妙的展開。
       if (e.target.closest('button, a, .col-pick')) return;
       togglePaymentDetail(row.getAttribute('data-id'), row);
@@ -376,7 +455,7 @@ function renderPaymentsTable() {
       const payment = currentPayments.find(p => p.id === e.target.getAttribute('data-id'));
       if (!payment) return;
 
-      if (confirm(`確定要刪除收款單 ${payment.payment_no}（${formatCurrency(payment.amount)}）嗎？\n刪除後相關單據的付款狀態會一併回復。`)) {
+      if (confirm(`確定要刪除${dir().action}單 ${payment.payment_no}（${formatCurrency(payment.amount)}）嗎？\n刪除後相關單據的付款狀態會一併回復。`)) {
         await deletePayment(payment.id);
       }
     });
@@ -444,9 +523,10 @@ async function expandPaymentDetail(paymentId, rowElement) {
     const payment = currentPayments.find(p => p.id === paymentId);
     const unallocated = Number(payment?.unallocated_amount) || 0;
     const rows = data || [];
+    const { action, order, orderKind, prepaid } = dir();
 
     const body = rows.length === 0
-      ? '<tr><td colspan="4" class="empty-state">此筆收款未對應任何出貨單，全額列為預收。</td></tr>'
+      ? `<tr><td colspan="4" class="empty-state">此筆${action}未對應任何${order}，全額列為${prepaid}。</td></tr>`
       : rows.map(a => `
           <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
             <td>${formatDate(a.order_date)}</td>
@@ -458,26 +538,26 @@ async function expandPaymentDetail(paymentId, rowElement) {
     rowElement.insertAdjacentHTML('afterend', `
       <tr class="detail-row">
         <td colspan="9" style="padding: 1rem 2rem;">
-          <h4 style="margin: 0 0 0.5rem;">本次收款的出貨單</h4>
+          <h4 style="margin: 0 0 0.5rem;">本次${action}的${order}</h4>
           <table class="detail-table">
             <thead>
               <tr>
-                <th>出貨日期</th>
-                <th>出貨單</th>
+                <th>${orderKind}日期</th>
+                <th>${order}</th>
                 <th>單據金額</th>
-                <th>本次收款</th>
+                <th>本次${action}</th>
               </tr>
             </thead>
             <tbody>${body}</tbody>
           </table>
-          ${unallocated > 0 ? `<p class="text-warning" style="margin: 0.5rem 0 0; font-size: 0.85rem;">未分配 ${formatCurrency(unallocated)}，列為預收。</p>` : ''}
+          ${unallocated > 0 ? `<p class="text-warning" style="margin: 0.5rem 0 0; font-size: 0.85rem;">未分配 ${formatCurrency(unallocated)}，列為${prepaid}。</p>` : ''}
         </td>
       </tr>`);
   } catch (error) {
     console.error('Error loading allocations:', error);
     if (rowElement.__detailToken !== token) return;
     rowElement.classList.remove('detail-open');
-    showToast('載入收款明細失敗：' + toErrorMessage(error), 'error');
+    showToast(`載入${dir().action}明細失敗：` + toErrorMessage(error), 'error');
   }
 }
 
@@ -495,7 +575,8 @@ async function renderPartnerBalanceHint(partnerId) {
     const { data, error } = await sb.rpc('get_partner_balances', {
       p_as_of: null,
       p_partner_id: partnerId,
-      p_include_settled: true
+      p_include_settled: true,
+      p_partner_type: dir().partnerType
     });
     if (error) throw error;
     balance = data?.[0] || null;
@@ -510,7 +591,7 @@ async function renderPartnerBalanceHint(partnerId) {
 
   partnerBalanceHint.style.display = '';
   partnerBalanceHint.innerHTML = `
-    <span class="text-muted">目前應收餘額：</span>
+    <span class="text-muted">目前${dir().balance}餘額：</span>
     <strong class="${Number(balance.balance) > 0 ? 'text-danger' : 'text-success'}"
             style="font-family: 'Roboto', sans-serif;">${formatCurrency(balance.balance)}</strong>`;
 }
@@ -537,10 +618,10 @@ function setLegacyLock(payment) {
   }
 
   const unallocated = round2(Number(payment.unallocated_amount) || 0);
-  const reason = unallocated > 0 ? `含未分配預收 ${formatCurrency(unallocated)}` : '含部分沖帳';
+  const reason = unallocated > 0 ? `含未分配${dir().prepaid} ${formatCurrency(unallocated)}` : '含部分沖帳';
   paymentLegacyHint.style.display = '';
   paymentLegacyHint.textContent =
-    `此筆收款以舊版沖帳方式建立（${reason}），出貨單與金額不可調整。如需更正請刪除後重新開立。`;
+    `此筆${dir().action}以舊版沖帳方式建立（${reason}），${dir().order}與金額不可調整。如需更正請刪除後重新開立。`;
 }
 
 // data-amount 是「這列被勾選時要送出的分配金額」：新制恆為該單未收全額，
@@ -632,7 +713,7 @@ async function loadOrderItems(orderIds) {
 
 async function loadAllocatableOrders(partnerId, payment = null) {
   if (!partnerId) {
-    paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>';
+    paymentOrdersList.innerHTML = `<div class="empty-state" style="padding: 1rem 0;">請先選擇${dir().partner}</div>`;
     setLegacyLock(null);
     updatePaymentAmount();
     return;
@@ -641,8 +722,14 @@ async function loadAllocatableOrders(partnerId, payment = null) {
   paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">載入中...</div>';
 
   try {
+    // 查 order_payment_summary_view 而非 outstanding_order_view：後者是「應收」的定義來源，
+    // 只含出貨單（追款清單也建在它上面），未付的進貨單在那裡查不到。
+    // 這裡不必再依方向篩單據類型——對象已限定客戶或供應商，查得到的就只會是該方向的單。
     const [outstandingRes, existingRes] = await Promise.all([
-      sb.from('outstanding_order_view').select('*').eq('partner_id', partnerId).order('order_date'),
+      sb.from('order_payment_summary_view').select('*')
+        .eq('partner_id', partnerId)
+        .gt('outstanding_amount', 0)
+        .order('order_date'),
       payment
         ? sb.from('payment_allocation_view').select('*').eq('payment_id', payment.id).order('order_date')
         : Promise.resolve({ data: [], error: null })
@@ -657,9 +744,9 @@ async function loadAllocatableOrders(partnerId, payment = null) {
     // 編輯時，這筆收款自己已分配的金額會讓單據看起來未收較少，
     // 必須加回去才是「這筆收款可以動用的上限」，也才是勾選時要帶入的金額。
     let rows = (outstandingRes.data || []).map(o => {
-      const mine = Number(existingById.get(o.id)?.allocated_amount) || 0;
+      const mine = Number(existingById.get(o.order_id)?.allocated_amount) || 0;
       return {
-        id: o.id,
+        id: o.order_id,
         order_no: o.order_no,
         order_date: o.order_date,
         order_total: Number(o.order_total),
@@ -687,7 +774,7 @@ async function loadAllocatableOrders(partnerId, payment = null) {
     if (legacy) rows = rows.filter(r => r.allocated > 0);
 
     if (rows.length === 0) {
-      paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">此客戶目前沒有未收款的出貨單</div>';
+      paymentOrdersList.innerHTML = `<div class="empty-state" style="padding: 1rem 0;">此${dir().partner}目前沒有未${dir().action}的${dir().order}</div>`;
       updatePaymentAmount();
       return;
     }
@@ -704,7 +791,7 @@ async function loadAllocatableOrders(partnerId, payment = null) {
   } catch (error) {
     console.error('Error loading orders:', error);
     paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0; color: var(--danger);">載入失敗</div>';
-    showToast('載入出貨單失敗：' + toErrorMessage(error), 'error');
+    showToast(`載入${dir().order}失敗：` + toErrorMessage(error), 'error');
   }
 }
 
@@ -754,14 +841,14 @@ function openPaymentModal(payment = null) {
   const form = document.getElementById('payment-form');
   form.reset();
   document.getElementById('payment-date').value = toDateInputValue(new Date());
-  paymentOrdersList.innerHTML = '<div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>';
+  paymentOrdersList.innerHTML = `<div class="empty-state" style="padding: 1rem 0;">請先選擇${dir().partner}</div>`;
   partnerBalanceHint.style.display = 'none';
   // 先解鎖：上一次開的可能是舊制收款，殘留的鎖會讓客戶下拉一直停在 disabled。
   setLegacyLock(null);
   updatePaymentAmount();
 
   if (payment) {
-    document.getElementById('payment-modal-title').textContent = '編輯收款';
+    document.getElementById('payment-modal-title').textContent = `編輯${dir().action}`;
     document.getElementById('payment-id').value = payment.id;
     paymentPartner.value = payment.partner_id;
     document.getElementById('payment-date').value = payment.payment_date;
@@ -770,7 +857,7 @@ function openPaymentModal(payment = null) {
     renderPartnerBalanceHint(payment.partner_id);
     loadAllocatableOrders(payment.partner_id, payment);
   } else {
-    document.getElementById('payment-modal-title').textContent = '新增收款';
+    document.getElementById('payment-modal-title').textContent = `新增${dir().action}`;
     document.getElementById('payment-id').value = '';
   }
 
@@ -782,7 +869,7 @@ async function deletePayment(id) {
     const { error } = await sb.from('payments').delete().eq('id', id);
     if (error) throw error;
 
-    showToast('收款紀錄已刪除', 'success');
+    showToast(`${dir().action}紀錄已刪除`, 'success');
     await Promise.all([loadBalances(), loadPayments()]);
   } catch (error) {
     console.error('Error deleting payment:', error);
@@ -799,7 +886,7 @@ async function savePayment() {
 
   const allocations = collectAllocations();
   if (allocations.length === 0) {
-    showToast('請勾選這次收款結清的出貨單', 'error');
+    showToast(`請勾選這次${dir().action}結清的${dir().order}`, 'error');
     return;
   }
 
@@ -819,7 +906,7 @@ async function savePayment() {
 
     if (error) throw error;
 
-    showToast(id ? '收款紀錄已更新' : '收款紀錄已儲存', 'success');
+    showToast(`${dir().action}紀錄已${id ? '更新' : '儲存'}`, 'success');
     closeModal('payment-modal');
 
     currentPage = 1;
@@ -1037,6 +1124,10 @@ function setupEventListeners() {
     balancePage = 1;
     loadBalances();
   }, 400));
+
+  document.querySelectorAll('.tab-btn[data-dir]').forEach(btn => {
+    btn.addEventListener('click', () => selectDirection(btn.getAttribute('data-dir')));
+  });
 
   document.getElementById('btn-add-payment').addEventListener('click', () => openPaymentModal());
 

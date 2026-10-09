@@ -195,7 +195,15 @@
   <div class="container">
     <div class="d-flex justify-between align-center mb-4">
       <h2>收付款管理</h2>
-      <button class="btn btn-primary" id="btn-add-payment">新增收款</button>
+      <button class="btn btn-primary" id="btn-add-payment" data-dir-text="新增{action}">新增收款</button>
+    </div>
+
+    <!-- 收款與付款共用同一套表與沖帳機制，方向由往來對象決定（客戶＝收款、供應商＝付款）。
+         隨方向變動的文字以 data-dir-text / data-dir-placeholder 標記，
+         由 payments.js 的 applyDirectionLabels 依 DIRECTIONS 代換 {action} 等欄位。 -->
+    <div class="tabs" role="tablist" aria-label="收付款方向">
+      <button class="tab-btn active" data-dir="in" role="tab" aria-selected="true">收款（客戶）</button>
+      <button class="tab-btn" data-dir="out" role="tab" aria-selected="false">付款（供應商）</button>
     </div>
 
     <div class="glass-card mb-4">
@@ -209,13 +217,13 @@
           <input type="date" id="search-date-to" class="form-control">
         </div>
         <div class="form-group search-select-group">
-          <label>客戶</label>
+          <label data-dir-text="{partner}">客戶</label>
           <select id="search-partner" class="form-control">
             <option value="all">全部</option>
           </select>
         </div>
         <div class="form-group search-select-group">
-          <label>收款方式</label>
+          <label data-dir-text="{action}方式">收款方式</label>
           <select id="search-method" class="form-control">
             <option value="all">全部</option>
             <option value="cash">現金</option>
@@ -225,7 +233,8 @@
         </div>
         <div class="form-group search-keyword-group">
           <label>關鍵字搜尋</label>
-          <input type="text" id="search-keyword" class="form-control" placeholder="收款單號、客戶、出貨單號、備註...">
+          <input type="text" id="search-keyword" class="form-control" placeholder="收款單號、客戶、出貨單號、備註..."
+                 data-dir-placeholder="{action}單號、{partner}、{order}號、備註...">
         </div>
         <button class="btn btn-outline" id="btn-reset-search">清除條件</button>
       </div>
@@ -233,7 +242,7 @@
     </div>
 
     <div class="glass-card">
-      <h3 class="mb-3">收款紀錄</h3>
+      <h3 class="mb-3" data-dir-text="{action}紀錄">收款紀錄</h3>
       <div class="table-responsive">
         <table id="payments-table">
           <thead>
@@ -248,9 +257,9 @@
                 </label>
               </th>
               <th>日期</th>
-              <th>收款單號</th>
-              <th>出貨單</th>
-              <th>客戶</th>
+              <th data-dir-text="{action}單號">收款單號</th>
+              <th data-dir-text="{order}">出貨單</th>
+              <th data-dir-text="{partner}">客戶</th>
               <th>金額</th>
               <th>方式</th>
               <th>備註</th>
@@ -272,18 +281,19 @@
     <div class="glass-card mt-4">
       <div class="d-flex justify-between align-center mb-3 balance-header">
         <div>
-          <h3 class="mb-0">客戶應收餘額</h3>
+          <h3 class="mb-0" data-dir-text="{partner}{balance}餘額">客戶應收餘額</h3>
           <p id="balance-asof-hint" class="balance-asof-hint"></p>
         </div>
         <div class="balance-controls">
           <input type="text" id="balance-keyword" class="form-control balance-keyword"
-                 placeholder="搜尋客戶編號、名稱、統編...">
+                 placeholder="搜尋客戶編號、名稱、統編..."
+                 data-dir-placeholder="搜尋{partner}編號、名稱、統編...">
           <label class="balance-settled-toggle checkbox">
             <input type="checkbox" id="toggle-settled">
             <span class="checkbox-box">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
             </span>
-            <span>顯示已結清客戶</span>
+            <span data-dir-text="顯示已結清{partner}">顯示已結清客戶</span>
           </label>
         </div>
       </div>
@@ -291,11 +301,11 @@
         <table class="balance-table" id="balance-table">
           <thead>
             <tr>
-              <th>客戶編號</th>
+              <th data-dir-text="{partner}編號">客戶編號</th>
               <th>名稱</th>
-              <th>出貨總額</th>
-              <th>已收款</th>
-              <th>應收餘額</th>
+              <th data-dir-text="{orderKind}總額">出貨總額</th>
+              <th data-dir-text="{paid}">已收款</th>
+              <th data-dir-text="{balance}餘額">應收餘額</th>
             </tr>
           </thead>
           <tbody>
@@ -322,19 +332,20 @@
         <form id="payment-form">
           <input type="hidden" id="payment-id">
           <div class="form-group">
-            <label>客戶</label>
+            <label data-dir-text="{partner}">客戶</label>
             <select id="payment-partner" class="form-control" required>
               <option value="">請選擇...</option>
             </select>
             <div id="partner-balance-hint" class="mt-2" style="font-size: 0.85rem; display: none;"></div>
           </div>
           <div class="form-group">
-            <label>收款日期</label>
+            <label data-dir-text="{action}日期">收款日期</label>
             <input type="date" id="payment-date" class="form-control" required>
           </div>
           <div class="form-group">
-            <label>收款出貨單</label>
-            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+            <label data-dir-text="{action}{order}">收款出貨單</label>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;"
+                 data-dir-text="勾選這次{action}結清的{order}，{action}金額自動加總。">
               勾選這次收款結清的出貨單，收款金額自動加總。
             </div>
             <!-- 明細預設展開，每列高度是原本的數倍，240px 只看得到一張單 -->
@@ -345,13 +356,13 @@
                  獨立的數字，就會產生「湊平」的負擔與湊不平的各種錯誤狀態。 -->
             <input type="hidden" id="payment-amount">
             <div style="text-align: right; font-size: 0.9rem;">
-              收款金額
+              <span data-dir-text="{action}金額">收款金額</span>
               <strong id="payment-amount-display" style="font-family: 'Roboto', sans-serif; font-size: 1.1rem;">$0</strong>
             </div>
             <div id="payment-legacy-hint" class="text-warning" style="font-size: 0.85rem; margin-top: 0.5rem; display: none;"></div>
           </div>
           <div class="form-group">
-            <label>收款方式</label>
+            <label data-dir-text="{action}方式">收款方式</label>
             <select id="payment-method" class="form-control" required>
               <option value="cash">現金</option>
               <option value="transfer">匯款</option>

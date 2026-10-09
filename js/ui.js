@@ -83,7 +83,7 @@ export function bindSubmitOnce(buttonId, handler) {
 const UNIQUE_FIELD_LABELS = {
   products_sku_key: '商品編號',
   partners_partner_no_key: '客戶編號',
-  payments_payment_no_key: '收款單號',
+  payments_payment_no_key: '收付款單號',
   orders_order_no_key: '單號'
 };
 
@@ -98,34 +98,38 @@ export function toErrorMessage(error) {
   if (raw.includes('ORDER_NOT_FOUND')) return '找不到此單據，可能已被刪除。';
 
   if (raw.includes('PAYMENT_STATUS_READONLY')) {
-    return '付款狀態由收款紀錄自動推導，請至收款管理新增或修改收款。';
+    return '付款狀態由收付款紀錄自動推導，請至收付款管理新增或修改。';
   }
-  // 收款金額改由勾選的出貨單加總而來，這幾種狀況在正常操作下不會發生，
+  // 收付款金額改由勾選的單據加總而來，這幾種狀況在正常操作下不會發生，
   // 只會在畫面開著、資料同時被別處改動時出現，因此一律引導重新整理。
+  // 收款與付款共用這組錯誤碼（patch-027），訊息一律講「單據」「收付款」，不寫死出貨單。
   if (raw.includes('ALLOCATION_EXCEEDS_PAYMENT')) {
-    return '收款金額與所選出貨單的總額不符，請重新整理後再試。';
+    return '收付款金額與所選單據的總額不符，請重新整理後再試。';
   }
   if (raw.includes('ALLOCATION_EXCEEDS_ORDER')) {
-    return '所選出貨單的應收金額已變動，可能已有其他收款收過，請重新整理後再試。';
+    return '所選單據的未結金額已變動，可能已被其他收付款沖過，請重新整理後再試。';
   }
   if (raw.includes('ALLOCATION_PARTNER_MISMATCH')) {
-    return '所選出貨單不屬於這位客戶，請重新整理後再試。';
+    return '所選單據不屬於這個往來對象，請重新整理後再試。';
+  }
+  if (raw.includes('ALLOCATION_DIRECTION_MISMATCH')) {
+    return '客戶只能沖出貨單、供應商只能沖進貨單。';
   }
   if (raw.includes('ALLOCATION_TARGET_INVALID')) {
-    return '只能選擇已確認的出貨單。';
+    return '只能選擇已確認的出貨單或進貨單。';
   }
   if (raw.includes('ORDER_HAS_ALLOCATIONS')) {
-    return '此單據已有收款紀錄，請先至收款管理刪除對應的收款後再作廢。';
+    return '此單據已有收付款紀錄，請先至收付款管理刪除對應的紀錄後再作廢。';
   }
   if (raw.includes('ORDER_TOTAL_BELOW_ALLOCATED')) {
-    return '單據金額低於已收金額，請先至收款管理刪除對應的收款。';
+    return '單據金額低於已收付金額，請先至收付款管理刪除對應的紀錄。';
   }
-  if (raw.includes('PAYMENT_PARTNER_INVALID')) return '收款對象必須是客戶。';
-  if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇收款客戶。';
-  if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收款金額必須大於 0。';
-  if (raw.includes('PAYMENT_METHOD_INVALID')) return '收款方式不正確。';
-  if (raw.includes('PAYMENT_NOT_FOUND')) return '找不到此收款紀錄，可能已被刪除。';
-  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '出貨單的收款金額必須大於 0。';
+  if (raw.includes('PAYMENT_PARTNER_INVALID')) return '找不到此往來對象，請重新整理後再試。';
+  if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇往來對象。';
+  if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收付款金額必須大於 0。';
+  if (raw.includes('PAYMENT_METHOD_INVALID')) return '收付款方式不正確。';
+  if (raw.includes('PAYMENT_NOT_FOUND')) return '找不到此收付款紀錄，可能已被刪除。';
+  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '單據的沖帳金額必須大於 0。';
 
   if (/duplicate key value/i.test(raw)) {
     const matched = Object.keys(UNIQUE_FIELD_LABELS).find(key => raw.includes(key));
@@ -350,6 +354,8 @@ export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
   sync();
 
   return {
+    // 同一張表切換到不可列印的檢視（收付款頁的付款分頁）時，殘留的選取不能帶過去
+    clear: clearSelection,
     // 不能列印的列（進貨、作廢…）也要輸出空格，欄位才對得齊
     checkboxCell: (id, selectable = true) => selectable
       ? `<td class="col-pick">
