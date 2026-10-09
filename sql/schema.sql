@@ -101,8 +101,12 @@ create table orders (
   payment_status  text default 'unpaid'
                   check (payment_status in ('unpaid','partial','paid')),
   note            text,
-  created_at      timestamptz default now()
+  created_at      timestamptz default now(),
+  parent_order_id uuid references orders(id)       -- 接續的原單（分批進出貨，見 guard_order_parent）
 );
+
+comment on column orders.parent_order_id is
+  '接續的原單（分批進出貨）。只允許兩層，群組鍵為 coalesce(parent_order_id, id)。見 guard_order_parent。';
 
 -- ----------------------------------------
 -- 單據明細（＝庫存異動流水帳）
@@ -187,6 +191,11 @@ create index idx_payment_orders_order_amount
 create index idx_orders_sale_confirmed
   on orders (partner_id, order_date desc)
   where type = 'sale' and status = 'confirmed';
+
+-- 分批進出貨：依原單找接續單（群組張數、ORDER_HAS_CHILDREN 檢查）
+create index idx_orders_parent
+  on orders (parent_order_id)
+  where parent_order_id is not null;
 
 -- 單一商品成本明細分頁：product_id 起手再依 order 排序
 create index idx_order_items_product_order
@@ -324,6 +333,9 @@ group by oi.order_id;
 -- 與付款狀態、partner_balance_view、dashboard_summary 同口徑。
 -- item_count 仍在這裡自己 count：這裡是 left join orders，沒有明細的單要算 0，
 -- 而 order_top_item_view 根本不會有那一列。
+-- search_text 併入原單單號（patch-028）：搜原單號就能撈出整組。
+-- 群組欄位只能追加在尾端：create or replace view 不能調整既有欄位順序。
+-- group_size 不計作廢單：作廢的那批貨已經不存在，算進去會讓「共 N 批」對不上實際張數。
 -- ----------------------------------------
 create view order_search_view as
 select
@@ -345,8 +357,16 @@ select
   o.order_no || ' ' || coalesce(o.note,'')
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(pr.name || ' ' || pr.sku, ' '), '')
+    || ' ' || coalesce((select r.order_no from orders r where r.id = o.parent_order_id), '')
     as search_text,
-  ti.top_item_name
+  ti.top_item_name,
+  o.parent_order_id,
+  coalesce(o.parent_order_id, o.id) as group_root_id,
+  (select r.order_no from orders r where r.id = coalesce(o.parent_order_id, o.id)) as group_root_no,
+  (select count(*) from orders g
+    where (g.id = coalesce(o.parent_order_id, o.id)
+           or g.parent_order_id = coalesce(o.parent_order_id, o.id))
+      and g.status <> 'void') as group_size
 from orders o
 left join partners p     on p.id = o.partner_id
 left join order_items oi on oi.order_id = o.id
@@ -631,7 +651,8 @@ create or replace function create_order(
   p_order_date date default current_date,
   p_discount numeric default 0,
   p_tax numeric default 0,
-  p_status text default 'confirmed'
+  p_status text default 'confirmed',
+  p_parent_order_id uuid default null
 ) returns uuid
 language plpgsql
 security invoker
@@ -655,10 +676,10 @@ begin
     raise exception '單據明細不可為空';
   end if;
 
-  insert into orders (order_no, type, status, partner_id, order_date, discount, tax, note)
+  insert into orders (order_no, type, status, partner_id, order_date, discount, tax, note, parent_order_id)
   values (
     'ORD-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(md5(random()::text), 1, 4),
-    p_type, p_status, p_partner, p_order_date, p_discount, p_tax, p_note
+    p_type, p_status, p_partner, p_order_date, p_discount, p_tax, p_note, p_parent_order_id
   )
   returning id into v_order_id;
 
@@ -773,7 +794,8 @@ create or replace function update_draft_order(
   p_items jsonb,
   p_order_date date,
   p_discount numeric default 0,
-  p_tax numeric default 0
+  p_tax numeric default 0,
+  p_parent_order_id uuid default null
 ) returns void
 language plpgsql
 security invoker
@@ -802,11 +824,12 @@ begin
   end if;
 
   update orders
-  set partner_id = p_partner,
-      note       = p_note,
-      order_date = coalesce(p_order_date, order_date),
-      discount   = coalesce(p_discount, 0),
-      tax        = coalesce(p_tax, 0)
+  set partner_id      = p_partner,
+      note            = p_note,
+      order_date      = coalesce(p_order_date, order_date),
+      discount        = coalesce(p_discount, 0),
+      tax             = coalesce(p_tax, 0),
+      parent_order_id = p_parent_order_id
   where id = p_order_id;
 
   delete from order_items where order_id = p_order_id;
@@ -881,6 +904,90 @@ begin
   set note = coalesce(p_note, note)
   where id = p_order_id;
 end $$;
+
+-- 設定／解除接續原單（已確認單事後補設用；草稿走 update_draft_order）
+-- 不併進 update_order_meta：那裡的 null 代表「不改」，表達不了「解除接續」。
+create or replace function set_order_parent(
+  p_order_id        uuid,
+  p_parent_order_id uuid
+) returns void
+language plpgsql
+security invoker
+as $$
+declare
+  v_status text;
+begin
+  select status into v_status
+  from orders
+  where id = p_order_id
+  for update;
+
+  if not found then
+    raise exception 'ORDER_NOT_FOUND';
+  end if;
+
+  if v_status = 'void' then
+    raise exception 'ORDER_NOT_EDITABLE';
+  end if;
+
+  update orders
+  set parent_order_id = p_parent_order_id
+  where id = p_order_id;
+end $$;
+
+-- 接續原單的規則（分批進出貨，patch-028）
+-- 每批到貨各開一張單，以 parent_order_id 指向原單；不追加明細到已確認單，因為庫存、
+-- as-of 均價與月報都以 order_date 為時間軸，後到的貨記在原單日期會讓已寫定的成本對不起來。
+-- 只允許兩層（原單 ← 接續單）：群組查詢不需遞迴，也不可能出現循環。
+-- 規則寫在 trigger 而非各支 RPC：建單、改草稿、set_order_parent 與直接 PATCH 都會經過。
+create or replace function guard_order_parent()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_parent orders%rowtype;
+begin
+  if new.parent_order_id is null then
+    return new;
+  end if;
+
+  if new.parent_order_id = new.id then
+    raise exception 'ORDER_PARENT_INVALID: 單據不能接續自己';
+  end if;
+
+  if new.type not in ('sale', 'purchase') then
+    raise exception 'ORDER_PARENT_INVALID: 只有進貨單與出貨單可以接續原單';
+  end if;
+
+  select * into v_parent from orders where id = new.parent_order_id;
+
+  if not found then
+    raise exception 'ORDER_PARENT_INVALID: 找不到要接續的原單';
+  end if;
+
+  if v_parent.parent_order_id is not null then
+    raise exception 'ORDER_PARENT_NESTED: % 本身是接續單，請改接續它的原單', v_parent.order_no;
+  end if;
+
+  -- 草稿換往來對象也會走到這裡：接續單必須與原單同對象，付款時才能一起沖帳。
+  if v_parent.type <> new.type
+     or v_parent.partner_id is distinct from new.partner_id then
+    raise exception 'ORDER_PARENT_INVALID: 只能接續同類型、同往來對象的單據（%）', v_parent.order_no;
+  end if;
+
+  -- 只在設定／變更接續的當下檢查原單狀態：原單事後作廢，接續單仍要能改備註、確認草稿。
+  if (tg_op = 'INSERT' or new.parent_order_id is distinct from old.parent_order_id)
+     and v_parent.status <> 'confirmed' then
+    raise exception 'ORDER_PARENT_INVALID: 只能接續已確認的單據（%）', v_parent.order_no;
+  end if;
+
+  if exists (select 1 from orders where parent_order_id = new.id) then
+    raise exception 'ORDER_HAS_CHILDREN: 此單已有接續單，不能再接續其他單';
+  end if;
+
+  return new;
+end;
+$$;
 
 -- ----------------------------------------
 -- 5.4 收款分配 RPC + 驗證
@@ -1761,6 +1868,12 @@ create trigger orders_guard_allocations
   before update on orders
   for each row
   execute function guard_order_total_against_allocations();
+
+drop trigger if exists orders_guard_parent on orders;
+create trigger orders_guard_parent
+  before insert or update of parent_order_id, partner_id, type on orders
+  for each row
+  execute function guard_order_parent();
 
 
 -- ============================================================
