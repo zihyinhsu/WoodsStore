@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -711,6 +711,52 @@ async function loadOrderItems(orderIds) {
   }
 }
 
+// 分批進出貨的群組（patch-028）。只影響呈現，查不到就退回逐張列出，勾選與金額照常運作。
+// 不從 order_payment_summary_view 帶：它是付款狀態的推導來源、被多個 view 依賴，不為顯示去動它。
+async function loadOrderGroups(orderIds) {
+  if (orderIds.length === 0) return new Map();
+
+  try {
+    const { data, error } = await sb
+      .from('order_search_view')
+      .select('id, group_root_id, group_root_no')
+      .in('id', orderIds);
+
+    if (error) throw error;
+    return new Map((data || []).map(o => [o.id, o]));
+  } catch (error) {
+    console.error('Error loading order groups:', error);
+    showToast('載入分批資訊失敗，單據改為逐張列出：' + toErrorMessage(error), 'error');
+    return new Map();
+  }
+}
+
+// 同一批（接續同一張原單）的單包成一組，方便一次付清整批貨款。
+// 組內列仍是原本的 .allocation-row，金額計算完全不變；組的表頭放在列之外、
+// 不用 .order-checkbox，避開 renderOrderItems 上方說明的全域掃描陷阱。
+function renderAllocationGroups(rows, legacy, itemsByOrder) {
+  const renderRow = r => renderAllocationRow(r, legacy, itemsByOrder.get(r.id) ?? null);
+
+  return [...groupBy(rows, 'group_root_id').values()].map(group => {
+    if (group.length < 2) return renderRow(group[0]);
+
+    const subtotal = round2(sum(group, legacy ? 'allocated' : 'allocatable'));
+    return `
+      <div class="allocation-group" style="border: 2px dashed var(--border-light); margin: 0.5rem 0;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg-page);">
+          <span style="flex: 1; font-weight: 600;">
+            同批 ${escapeHtml(group[0].group_root_no)} 等 ${group.length} 張
+          </span>
+          <strong style="font-family: 'Roboto', sans-serif;">${formatCurrency(subtotal)}</strong>
+          <button type="button" class="btn btn-outline btn-toggle-group"
+                  style="padding: 0.25rem 0.5rem; font-size: 0.8rem;" ${legacy ? 'disabled' : ''}>整組勾選</button>
+        </div>
+        ${group.map(renderRow).join('')}
+      </div>
+    `;
+  }).join('');
+}
+
 async function loadAllocatableOrders(partnerId, payment = null) {
   if (!partnerId) {
     paymentOrdersList.innerHTML = `<div class="empty-state" style="padding: 1rem 0;">請先選擇${dir().partner}</div>`;
@@ -781,10 +827,14 @@ async function loadAllocatableOrders(partnerId, payment = null) {
 
     rows.sort((a, b) => (a.order_date < b.order_date ? -1 : a.order_date > b.order_date ? 1 : 0));
 
-    const itemsByOrder = await loadOrderItems(rows.map(r => r.id));
-    paymentOrdersList.innerHTML = rows
-      .map(r => renderAllocationRow(r, Boolean(legacy), itemsByOrder.get(r.id) ?? null))
-      .join('');
+    const ids = rows.map(r => r.id);
+    const [itemsByOrder, groupsByOrder] = await Promise.all([loadOrderItems(ids), loadOrderGroups(ids)]);
+    rows.forEach(r => {
+      const g = groupsByOrder.get(r.id);
+      r.group_root_id = g?.group_root_id ?? r.id;
+      r.group_root_no = g?.group_root_no ?? r.order_no;
+    });
+    paymentOrdersList.innerHTML = renderAllocationGroups(rows, Boolean(legacy), itemsByOrder);
 
     bindAllocationEvents();
     updatePaymentAmount();
@@ -800,6 +850,25 @@ function bindAllocationEvents() {
     const checkbox = row.querySelector('.order-checkbox');
     if (checkbox.disabled) return;
     checkbox.addEventListener('change', updatePaymentAmount);
+  });
+
+  // 整組勾選只是批次切換組內的 checkbox，金額一樣交給 updatePaymentAmount 推導，不另外加總。
+  document.querySelectorAll('.allocation-group').forEach(group => {
+    const btn = group.querySelector('.btn-toggle-group');
+    if (btn.disabled) return;
+
+    const boxes = [...group.querySelectorAll('.allocation-row .order-checkbox')].filter(cb => !cb.disabled);
+    const allChecked = () => boxes.every(cb => cb.checked);
+    const syncLabel = () => { btn.textContent = allChecked() ? '取消整組' : '整組勾選'; };
+
+    btn.addEventListener('click', () => {
+      const check = !allChecked();
+      boxes.forEach(cb => { cb.checked = check; });
+      updatePaymentAmount();
+      syncLabel();
+    });
+    boxes.forEach(cb => cb.addEventListener('change', syncLabel));
+    syncLabel();
   });
 }
 
