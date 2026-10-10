@@ -1065,7 +1065,7 @@ async function paymentSlipHtml(payment) {
           ${rowsHtml}
           <tr>
             <td colspan="7" style="text-align: right; font-weight: bold;">明細合計</td>
-            <td style="font-weight: bold;">${formatAmount(totalSubtotal)}</td>
+            <td style="font-weight: bold;">${formatCurrency(totalSubtotal)}</td>
           </tr>
         </tbody>
       </table>
@@ -1101,12 +1101,12 @@ async function paymentSlipHtml(payment) {
           <td>${formatDate(payment.payment_date)}</td>
           <td>${methodMap[payment.method] || escapeHtml(payment.method)}</td>
           <td>${escapeHtml(payment.note || '')}</td>
-          <td>${formatAmount(payment.amount)}</td>
+          <td>${formatCurrency(payment.amount)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
         <tr>
           <td colspan="3" style="text-align: right; font-weight: bold;">收款後應收餘額</td>
-          <td style="font-weight: bold;">${formatAmount(balance)}</td>
+          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
         </tr>` : ''}
       </tbody>
     </table>

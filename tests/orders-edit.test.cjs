@@ -177,7 +177,7 @@ const fieldState = async page => ({
     r.check('出貨單明細欄位', await slip.locator('thead th').allInnerTexts(),
       ['品名', '規格', '數量', '單位', '單價', '金額']);
     r.truthy('出貨單有明細合計', (await slip.innerText()).includes('明細合計'));
-    r.truthy('出貨單金額不帶貨幣符號', !(await slip.locator('tbody').innerText()).includes('$'));
+    r.truthy('出貨單明細合計帶貨幣符號', (await slip.locator('tbody tr').filter({ hasText: '明細合計' }).locator('td').last().innerText()).includes('$'));
     r.truthy('出貨單頁尾為客戶簽收', (await slip.locator('.print-footer').innerText()).includes('客戶簽收'));
   } else {
     r.info('略過出貨單列印驗證', '查詢區間內沒有可列印的出貨單');

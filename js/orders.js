@@ -606,12 +606,12 @@ function shippingSlipHtml(order, items, partner, balance) {
         `).join('')}
         <tr>
           <td colspan="5" style="text-align: right; font-weight: bold;">明細合計</td>
-          <td style="font-weight: bold;">${formatAmount(itemsTotal)}</td>
+          <td style="font-weight: bold;">${formatCurrency(itemsTotal)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
         <tr>
           <td colspan="5" style="text-align: right; font-weight: bold;">應收餘額</td>
-          <td style="font-weight: bold;">${formatAmount(balance)}</td>
+          <td style="font-weight: bold;">${formatCurrency(balance)}</td>
         </tr>` : ''}
       </tbody>
     </table>
