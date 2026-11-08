@@ -372,10 +372,247 @@ export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
   };
 }
 
+// 下拉選單補上搜尋：往來對象、商品、原單的選項一多，原生 <select> 只能靠捲動找。
+//
+// 原生 select 保留在原位當唯一的資料來源，只是透明疊在觸發鈕底下：
+// 各頁照舊讀寫 .value、監聽 change、用 innerHTML 重填選項、設 disabled，
+// form.reset() 與 required 驗證（reportValidity 的提示泡泡）也都照常運作，
+// E2E 的 selectOption／isDisabled 也不必改。若改成自己管值的元件，
+// 這些既有寫法得逐頁改，漏一處就是畫面與實際送出的值對不上。
+//
+// 展開的面板只有一份、掛在 body 底下：modal 的 .modal-content 有 overflow，
+// 掛在原位會被裁掉；也不會在 #order-lines 裡多出 input（測試會數明細列的欄位）。
+const nativeSelectValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+const nativeSelectIndex = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'selectedIndex');
+let selectPanel = null;
+let openSelect = null;
+
+export function enhanceSelect(select) {
+  if (select.multiple || select.dataset.searchEnhanced) return;
+  select.dataset.searchEnhanced = '1';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'select-search';
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'form-control select-search-trigger';
+  select.before(wrap);
+  wrap.append(trigger, select);
+  select.tabIndex = -1;
+
+  // <label for="..."> 原本指向 select，點標籤改成打開搜尋
+  if (select.id) {
+    document.querySelectorAll(`label[for="${CSS.escape(select.id)}"]`)
+      .forEach(label => label.addEventListener('click', (e) => { e.preventDefault(); trigger.focus(); }));
+  }
+
+  const refresh = () => {
+    const option = select.selectedOptions[0];
+    trigger.textContent = option ? option.text : '';
+    trigger.title = trigger.textContent;
+    trigger.disabled = select.disabled;
+  };
+
+  // 程式直接設 .value／selectedIndex 不會觸發 change，攔下來同步顯示文字
+  for (const [prop, desc] of [['value', nativeSelectValue], ['selectedIndex', nativeSelectIndex]]) {
+    Object.defineProperty(select, prop, {
+      configurable: true,
+      get() { return desc.get.call(this); },
+      set(v) { desc.set.call(this, v); refresh(); }
+    });
+  }
+
+  select.addEventListener('change', refresh);
+  // reset 事件在表單實際重設之前觸發，等它重設完再讀值
+  select.form?.addEventListener('reset', () => setTimeout(refresh));
+  new MutationObserver(refresh).observe(select, {
+    childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['disabled']
+  });
+
+  trigger.addEventListener('click', () => openSelectPanel(select, trigger));
+  trigger.addEventListener('keydown', (e) => {
+    if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) {
+      e.preventDefault();
+      openSelectPanel(select, trigger);
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // 聚焦在選單上直接打字就開始搜尋，不必先按開
+      e.preventDefault();
+      openSelectPanel(select, trigger, e.key);
+    }
+  });
+
+  refresh();
+}
+
+function getSelectPanel() {
+  if (selectPanel) return selectPanel;
+
+  selectPanel = document.createElement('div');
+  selectPanel.className = 'select-search-panel';
+  selectPanel.hidden = true;
+  selectPanel.innerHTML = `
+    <input type="search" class="form-control select-search-input" placeholder="搜尋..." autocomplete="off">
+    <ul class="select-search-list" role="listbox"></ul>`;
+  document.body.appendChild(selectPanel);
+
+  const input = selectPanel.querySelector('input');
+  const list = selectPanel.querySelector('ul');
+
+  input.addEventListener('input', renderSelectOptions);
+  input.addEventListener('keydown', (e) => {
+    const items = [...list.querySelectorAll('.select-search-item')];
+    const current = items.findIndex(li => li.classList.contains('active'));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const next = e.key === 'ArrowDown' ? Math.min(current + 1, items.length - 1) : Math.max(current - 1, 0);
+      setActiveItem(items[next]);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (items[current]) chooseSelectOption(items[current].dataset.index);
+    } else if (e.key === 'Escape') {
+      // 擋住冒泡：document 上的 Escape 會連整個 modal 一起關掉
+      e.stopPropagation();
+      closeSelectPanel(true);
+    } else if (e.key === 'Tab') {
+      closeSelectPanel(true);
+    }
+  });
+
+  // 用 mousedown 而非 click：避免輸入框先失焦
+  list.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const item = e.target.closest('.select-search-item');
+    if (item) chooseSelectOption(item.dataset.index);
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (openSelect && !selectPanel.contains(e.target) && !openSelect.trigger.contains(e.target)) closeSelectPanel();
+  });
+  // modal 內捲動時面板要跟著觸發鈕走；capture 才收得到各捲動容器的 scroll
+  window.addEventListener('scroll', (e) => {
+    if (openSelect && !selectPanel.contains(e.target)) positionSelectPanel();
+  }, true);
+  window.addEventListener('resize', () => openSelect && positionSelectPanel());
+
+  return selectPanel;
+}
+
+function openSelectPanel(select, trigger, initialQuery = '') {
+  if (select.disabled) return;
+  if (openSelect?.select === select) { closeSelectPanel(true); return; }
+
+  const panel = getSelectPanel();
+  openSelect = { select, trigger };
+  trigger.classList.add('open');
+  panel.hidden = false;
+
+  const input = panel.querySelector('input');
+  input.value = initialQuery;
+  renderSelectOptions();
+  positionSelectPanel();
+  input.focus();
+  panel.querySelector('.select-search-item.active')?.scrollIntoView({ block: 'nearest' });
+}
+
+function closeSelectPanel(refocus = false) {
+  if (!openSelect) return;
+  const { trigger } = openSelect;
+  openSelect = null;
+  selectPanel.hidden = true;
+  trigger.classList.remove('open');
+  if (refocus) trigger.focus();
+}
+
+// 空白分隔的多個關鍵字要全部符合，例如「矽利康 白」
+function renderSelectOptions() {
+  const { select } = openSelect;
+  const list = selectPanel.querySelector('ul');
+  const terms = selectPanel.querySelector('input').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+  list.replaceChildren();
+  [...select.options].forEach((option, index) => {
+    if (option.hidden) return;
+    const text = option.text.toLowerCase();
+    if (!terms.every(t => text.includes(t))) return;
+
+    const li = document.createElement('li');
+    li.className = 'select-search-item';
+    li.setAttribute('role', 'option');
+    li.dataset.index = index;
+    // textContent 寫入，選項文字不會被當成 HTML
+    li.textContent = option.text;
+    if (option.disabled) li.classList.add('disabled');
+    if (option.selected) li.setAttribute('aria-selected', 'true');
+    list.appendChild(li);
+  });
+
+  if (!list.children.length) {
+    const empty = document.createElement('li');
+    empty.className = 'select-search-empty';
+    empty.textContent = '沒有符合的選項';
+    list.appendChild(empty);
+    return;
+  }
+
+  // 沒打字時停在目前選的那項；有打字就停在第一筆符合的，按 Enter 直接選
+  const selected = terms.length ? null : list.querySelector('[aria-selected="true"]');
+  setActiveItem(selected || list.querySelector('.select-search-item:not(.disabled)'));
+}
+
+function setActiveItem(item) {
+  if (!item) return;
+  selectPanel.querySelectorAll('.select-search-item.active').forEach(li => li.classList.remove('active'));
+  item.classList.add('active');
+  item.scrollIntoView({ block: 'nearest' });
+}
+
+function chooseSelectOption(index) {
+  const { select } = openSelect;
+  const option = select.options[index];
+  if (!option || option.disabled) return;
+
+  closeSelectPanel(true);
+  if (option.selected) return;
+  select.value = option.value;
+  // 照原生選單的行為補發事件，各頁既有的 change 監聽才會執行
+  select.dispatchEvent(new Event('input', { bubbles: true }));
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// 面板用 fixed 定位貼在觸發鈕下方；下方空間不夠就往上開
+function positionSelectPanel() {
+  const rect = openSelect.trigger.getBoundingClientRect();
+  const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
+  const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUp = spaceBelow < 280 && rect.top > spaceBelow;
+
+  Object.assign(selectPanel.style, {
+    left: `${left}px`,
+    width: `${width}px`,
+    top: openUp ? '' : `${rect.bottom + 4}px`,
+    bottom: openUp ? `${window.innerHeight - rect.top + 4}px` : '',
+    maxHeight: `${Math.max(openUp ? rect.top : spaceBelow, 160) - 12}px`
+  });
+}
+
+// 全站的 select.form-control 一律套用；之後才動態產生的（訂單明細列）由 MutationObserver 補上
+function enhanceAllSelects() {
+  const enhanceIn = (root) => {
+    if (root.matches?.('select.form-control')) enhanceSelect(root);
+    root.querySelectorAll?.('select.form-control').forEach(enhanceSelect);
+  };
+  enhanceIn(document);
+  new MutationObserver(records => {
+    for (const record of records) record.addedNodes.forEach(enhanceIn);
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
 // Setup modal close buttons
 onReady(() => {
   initSidebar();
-  
+  enhanceAllSelects();
+
   document.querySelectorAll('.close-btn, [data-dismiss="modal"]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const modal = e.target.closest('.modal-overlay');
