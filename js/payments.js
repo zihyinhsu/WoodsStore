@@ -24,6 +24,8 @@ const paymentOrdersList = document.getElementById('payment-orders-list');
 const paymentAmount = document.getElementById('payment-amount');
 const paymentAmountDisplay = document.getElementById('payment-amount-display');
 const paymentLegacyHint = document.getElementById('payment-legacy-hint');
+const paymentMethodGroup = document.getElementById('payment-method-group');
+const paymentOffsetHint = document.getElementById('payment-offset-hint');
 const partnerBalanceHint = document.getElementById('partner-balance-hint');
 const orderFilterNotice = document.getElementById('order-filter-notice');
 
@@ -46,6 +48,16 @@ const methodMap = {
   'check': '支票'
 };
 
+// 0 元沖帳單（退貨剛好抵掉出貨）沒有現金進出，方式欄存的只是 schema 必填的預設值，
+// 照實顯示成「現金」會讓人以為真的收過錢。
+function methodLabel(payment) {
+  if (Number(payment.amount) === 0) return '沖帳';
+  return methodMap[payment.method] || escapeHtml(payment.method);
+}
+
+// 退貨單的金額為負：紅字讓使用者一眼看出這張是「抵掉」而不是「要收」。
+const negativeClass = amount => (Number(amount) < 0 ? 'text-danger' : '');
+
 // 收款與付款共用同一套表與沖帳機制（patch-027），差別只在往來對象與用語：
 // 對象是客戶就是收款、沖出貨單；是供應商就是付款、沖進貨單。
 // 用語集中在這裡，頁面上靠 data-dir-text 的 {key} 代換，JS 內則用 dir().key 組字串。
@@ -57,6 +69,7 @@ const DIRECTIONS = {
     partner: '客戶',
     order: '出貨單',
     orderKind: '出貨',
+    returnOrder: '銷貨退回',
     paid: '已收款',
     balance: '應收',
     prepaid: '預收',
@@ -68,6 +81,7 @@ const DIRECTIONS = {
     partner: '供應商',
     order: '進貨單',
     orderKind: '進貨',
+    returnOrder: '進貨退出',
     paid: '已付款',
     balance: '應付',
     prepaid: '預付',
@@ -290,8 +304,9 @@ async function loadOrderFilterNo() {
     if (error) throw error;
     orderFilterNo = data?.order_no || null;
     orderFilterPartnerId = data?.partner_id || null;
-    if (data?.type === 'purchase') direction = 'out';
-    else if (data?.type === 'sale') direction = 'in';
+    // 退貨單與原單同一方向：銷貨退回抵的是客戶的應收，進貨退出抵的是供應商的應付。
+    if (data?.type === 'purchase' || data?.type === 'purchase_return') direction = 'out';
+    else if (data?.type === 'sale' || data?.type === 'sale_return') direction = 'in';
   } catch (error) {
     console.error('Error loading filtered order:', error);
     orderFilterNo = null;
@@ -414,7 +429,7 @@ function renderPaymentsTable() {
         ${formatCurrency(p.amount)}
         ${unallocated > 0 ? `<span class="text-warning" style="font-size: 0.8rem; display: block;">未分配 ${formatCurrency(unallocated)}</span>` : ''}
       </td>
-      <td>${methodMap[p.method] || escapeHtml(p.method)}</td>
+      <td>${methodLabel(p)}</td>
       <td>${escapeHtml(p.note || '-')}</td>
       <td>
         <button class="btn btn-outline btn-edit-payment" data-id="${p.id}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">編輯</button>
@@ -531,8 +546,8 @@ async function expandPaymentDetail(paymentId, rowElement) {
           <tr class="${a.order_id === orderFilterId ? 'is-highlighted' : ''}">
             <td>${formatDate(a.order_date)}</td>
             <td>${itemSummaryCell(a.top_item_name, a.item_count, orderSearchLink(a.order_no, a.order_date))}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.order_total)}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.allocated_amount)}</td>
+            <td class="${negativeClass(a.order_total)}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.order_total)}</td>
+            <td class="${negativeClass(a.allocated_amount)}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(a.allocated_amount)}</td>
           </tr>`).join('');
 
     rowElement.insertAdjacentHTML('afterend', `
@@ -600,11 +615,48 @@ async function renderPartnerBalanceHint(partnerId) {
 // 收款金額必等於分配總額。只要有一項不成立，就是舊版手動沖帳留下的資料——
 // 用新規則重存會靜默改掉金額（部分沖帳被撐成全額、未分配預收被吃掉），
 // 因此整區鎖為唯讀，要更正只能刪除重開，與「單據不可編輯」的處理方式一致。
+//
+// 退貨單不適用「分配沒分配滿 = 舊制」：部分抵扣的退貨本來就是有分配、但沒分配滿
+// （退貨 −300 只抵 −150），把它算進來，含部分抵扣的收款一開編輯就被鎖成唯讀。
+// 退貨的金額是否合法由 allocateReturnOffsets 的淨額規則保證，不靠這條判斷。
+// 這條只剩出貨列在比，出貨的金額恆為正，所以 > 0 的寫法不必動。
 function isLegacyAllocation(rows, payment) {
   if (!payment) return false;
   if (round2(Number(payment.unallocated_amount) || 0) > 0) return true;
-  return rows.some(r => r.allocated > 0 && r.allocated < r.allocatable);
+  return rows.some(r => !isReturnRow(r) && r.allocated > 0 && r.allocated < r.allocatable);
 }
+
+// 退貨單的 order_total 為負（出貨／進貨單恆為正），用金額正負判斷而不另查單據類型：
+// 兩個來源 view（order_payment_summary_view、payment_allocation_view）都帶得出這個欄位。
+const isReturnRow = r => Number(r.order_total) < 0;
+
+// 勾選的退貨合計超過勾選的出貨時，退貨只能抵到淨額剛好為 0：多出來的負數無處可去
+// （DB 端 ALLOCATION_NET_NEGATIVE），而讓使用者自己算哪些能一起勾太苛。
+// 依勾選順序從「最後勾的那張退貨」往回調低，使用者先勾的優先抵滿。
+//
+// selected 為已勾選的列，依勾選順序排列，full 為該列可動用的全額（出貨為正、退貨為負）。
+// 回傳 Map<id, 本次分配金額>，沒被調到的列維持 full。
+// 留在 payments.js 而非 utils.js：只有收付款頁會把出貨與退貨混在同一筆沖帳，換頁面不會再用到。
+function allocateReturnOffsets(selected) {
+  const result = new Map(selected.map(s => [s.id, s.full]));
+
+  // 淨額為負的絕對值就是退貨多出出貨的部分，也就是還需要往回砍的額度。
+  let excess = round2(-sum(selected, 'full'));
+
+  for (let i = selected.length - 1; i >= 0 && excess > 0; i--) {
+    const { id, full } = selected[i];
+    if (full >= 0) continue;
+
+    const cut = Math.min(excess, -full);
+    result.set(id, round2(full + cut));
+    excess = round2(excess - cut);
+  }
+  return result;
+}
+
+// 勾選順序：updatePaymentAmount 每次都從 DOM 的勾選狀態同步，而不是在 change 事件裡 push，
+// 因為「整組勾選」是程式直接改 checked，不會觸發 change。
+let checkOrder = [];
 
 function setLegacyLock(payment) {
   legacyPayment = payment;
@@ -624,32 +676,38 @@ function setLegacyLock(payment) {
     `此筆${dir().action}以舊版沖帳方式建立（${reason}），${dir().order}與金額不可調整。如需更正請刪除後重新開立。`;
 }
 
-// data-amount 是「這列被勾選時要送出的分配金額」：新制恆為該單未收全額，
+// data-full 是這列「可動用的全額」：新制恆為該單未收全額（編輯時含這筆自己原本分配的），
 // 舊制則是原本就存在的分配金額，唯讀且原樣送回。
+// data-amount 是「這列被勾選時要送出的分配金額」：出貨列恆等於 data-full；
+// 退貨列可能被 applyReturnOffsets 調低（部分抵扣），編輯既有收款時一開始帶回當時存的分配金額。
 function renderAllocationRow(r, legacy, items) {
-  const amount = legacy ? r.allocated : r.allocatable;
+  const isReturn = isReturnRow(r);
+  const full = legacy ? r.allocated : r.allocatable;
+  const amount = !legacy && isReturn && r.allocated !== 0 ? r.allocated : full;
   // 金額與單據總額不同時（別筆收款沖過一部分、或舊制部分沖帳），補上原始單據金額，
   // 否則使用者會以為系統把單據金額算錯了。
-  const showTotal = round2(amount) !== round2(r.order_total);
+  const showTotal = round2(full) !== round2(r.order_total);
 
   return `
     <div class="allocation-row" data-id="${escapeHtml(r.id)}" data-amount="${escapeHtml(amount)}"
+         data-full="${escapeHtml(full)}" data-kind="${isReturn ? 'return' : 'order'}"
          style="padding: 0.5rem; border-bottom: 1px solid var(--border-light);">
       <div style="display: flex; align-items: center; gap: 0.5rem;">
         <label class="checkbox">
           <input type="checkbox" class="order-checkbox"
-                 ${legacy || r.allocated > 0 ? 'checked' : ''} ${legacy ? 'disabled' : ''}>
+                 ${legacy || r.allocated !== 0 ? 'checked' : ''} ${legacy ? 'disabled' : ''}>
           <span class="checkbox-box">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
           </span>
         </label>
         <span style="flex: 1;">
-          ${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
+          ${isReturn ? `<span class="badge badge-red">${escapeHtml(dir().returnOrder)}</span> ` : ''}${formatDate(r.order_date)} - ${escapeHtml(r.order_no)}
           ${showTotal ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">單據 ${formatCurrency(r.order_total)}</span>` : ''}
+          <span class="allocation-offset-note text-danger" style="font-size: 0.8rem; display: none;"></span>
         </span>
-        <strong style="font-family: 'Roboto', sans-serif;">${formatCurrency(amount)}</strong>
+        <strong class="allocation-amount ${negativeClass(amount)}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(amount)}</strong>
       </div>
-      <div class="allocation-items">${renderOrderItems(items)}</div>
+      <div class="allocation-items">${renderOrderItems(items, isReturn)}</div>
     </div>
   `;
 }
@@ -657,7 +715,10 @@ function renderAllocationRow(r, legacy, items) {
 // 明細必須維持純展示：updatePaymentAmount 與 collectAllocations 是全域掃
 // .allocation-row 再往下找第一個 .order-checkbox，這個容器裡若出現同樣的結構，
 // 會被一併算進收款金額，且不會報錯，只會靜默算錯。
-function renderOrderItems(items) {
+//
+// order_items.subtotal 是 abs(qty) 算出的生成欄位、恆為正，退貨單要自己補負號，
+// 否則明細小計加起來會與上方單據金額（負數）對不上。
+function renderOrderItems(items, isReturn = false) {
   if (items === null) {
     return '<div style="padding: 0.25rem 0 0; font-size: 0.8rem; color: var(--danger);">明細載入失敗</div>';
   }
@@ -681,7 +742,7 @@ function renderOrderItems(items) {
             <td>${escapeHtml(item.products?.name ?? '')} <span class="text-muted">(${escapeHtml(item.products?.sku ?? '')})</span></td>
             <td>${Math.abs(item.qty)} ${escapeHtml(item.products?.unit ?? '')}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.unit_price)}</td>
-            <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.subtotal)}</td>
+            <td class="${isReturn ? 'text-danger' : ''}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(isReturn ? -item.subtotal : item.subtotal)}</td>
           </tr>`).join('')}
       </tbody>
     </table>`;
@@ -771,10 +832,11 @@ async function loadAllocatableOrders(partnerId, payment = null) {
     // 查 order_payment_summary_view 而非 outstanding_order_view：後者是「應收」的定義來源，
     // 只含出貨單（追款清單也建在它上面），未付的進貨單在那裡查不到。
     // 這裡不必再依方向篩單據類型——對象已限定客戶或供應商，查得到的就只會是該方向的單。
+    // 用 <> 0 而非 > 0：退貨單的未抵扣金額是負數，> 0 會讓它永遠不出現在可勾選清單。
     const [outstandingRes, existingRes] = await Promise.all([
       sb.from('order_payment_summary_view').select('*')
         .eq('partner_id', partnerId)
-        .gt('outstanding_amount', 0)
+        .neq('outstanding_amount', 0)
         .order('order_date'),
       payment
         ? sb.from('payment_allocation_view').select('*').eq('payment_id', payment.id).order('order_date')
@@ -817,10 +879,12 @@ async function loadAllocatableOrders(partnerId, payment = null) {
     setLegacyLock(legacy);
 
     // 舊制唯讀時只列出這筆收款實際沖過的單：其餘未收單既然不能勾，列出來只是雜訊。
-    if (legacy) rows = rows.filter(r => r.allocated > 0);
+    // 退貨列的分配是負數，不能再寫 > 0。
+    if (legacy) rows = rows.filter(r => r.allocated !== 0);
 
     if (rows.length === 0) {
       paymentOrdersList.innerHTML = `<div class="empty-state" style="padding: 1rem 0;">此${dir().partner}目前沒有未${dir().action}的${dir().order}</div>`;
+      checkOrder = [];
       updatePaymentAmount();
       return;
     }
@@ -837,6 +901,12 @@ async function loadAllocatableOrders(partnerId, payment = null) {
     paymentOrdersList.innerHTML = renderAllocationGroups(rows, Boolean(legacy), itemsByOrder);
 
     bindAllocationEvents();
+
+    // 載入時只同步勾選順序、不重算退貨列：編輯既有收款時，退貨列要維持當時存下的分配金額，
+    // 重算會依日期順序重新決定調哪一張，可能與當初儲存的不同。使用者動手勾選後才開始重算。
+    checkOrder = [];
+    syncCheckOrder();
+    document.querySelectorAll('.allocation-row[data-kind="return"]').forEach(renderReturnRow);
     updatePaymentAmount();
   } catch (error) {
     console.error('Error loading orders:', error);
@@ -849,7 +919,7 @@ function bindAllocationEvents() {
   document.querySelectorAll('.allocation-row').forEach(row => {
     const checkbox = row.querySelector('.order-checkbox');
     if (checkbox.disabled) return;
-    checkbox.addEventListener('change', updatePaymentAmount);
+    checkbox.addEventListener('change', onSelectionChange);
   });
 
   // 整組勾選只是批次切換組內的 checkbox，金額一樣交給 updatePaymentAmount 推導，不另外加總。
@@ -864,12 +934,75 @@ function bindAllocationEvents() {
     btn.addEventListener('click', () => {
       const check = !allChecked();
       boxes.forEach(cb => { cb.checked = check; });
-      updatePaymentAmount();
+      onSelectionChange();
       syncLabel();
     });
     boxes.forEach(cb => cb.addEventListener('change', syncLabel));
     syncLabel();
   });
+}
+
+function onSelectionChange() {
+  applyReturnOffsets();
+  updatePaymentAmount();
+}
+
+// 把 DOM 的勾選狀態同步進 checkOrder：取消的移除，新勾的依畫面順序附在最後。
+function syncCheckOrder() {
+  const checked = [];
+  document.querySelectorAll('.allocation-row').forEach(row => {
+    if (row.querySelector('.order-checkbox').checked) checked.push(row.getAttribute('data-id'));
+  });
+
+  const kept = checkOrder.filter(id => checked.includes(id));
+  checkOrder = [...kept, ...checked.filter(id => !kept.includes(id))];
+}
+
+// 每次勾選／取消都整批重算退貨列的分配金額（而非只調動剛變動的那一列），
+// 這樣取消出貨後被調低的退貨會自然恢復，兩張退貨時也永遠是「最後勾的先被調」。
+// 舊制唯讀時不動：那些金額是原樣送回的歷史資料。
+function applyReturnOffsets() {
+  syncCheckOrder();
+  if (legacyPayment) return;
+
+  const rowById = new Map([...document.querySelectorAll('.allocation-row')]
+    .map(row => [row.getAttribute('data-id'), row]));
+
+  const selected = checkOrder.map(id => ({
+    id,
+    full: Number(rowById.get(id).getAttribute('data-full')) || 0
+  }));
+  const allocated = allocateReturnOffsets(selected);
+
+  rowById.forEach((row, id) => {
+    if (row.getAttribute('data-kind') !== 'return') return;
+
+    const full = Number(row.getAttribute('data-full')) || 0;
+    // 沒被勾選的列維持全額：data-amount 的語意是「勾選時要送出的金額」。
+    // `|| 0` 把 -0 正規化成 0，否則 formatCurrency 會印出 -$0。
+    const amount = allocated.has(id) ? allocated.get(id) || 0 : full;
+    row.setAttribute('data-amount', String(amount));
+    renderReturnRow(row);
+  });
+}
+
+// 依 data-amount／data-full 重畫退貨列的金額與「剩 X 待抵」，只看 DOM 上的兩個值：
+// 載入既有收款時不重算、但仍要顯示當時留下的待抵額度，兩條路徑共用這一段。
+function renderReturnRow(row) {
+  const full = Number(row.getAttribute('data-full')) || 0;
+  const amount = Number(row.getAttribute('data-amount')) || 0;
+  const checked = row.querySelector('.order-checkbox').checked;
+
+  const amountEl = row.querySelector('.allocation-amount');
+  amountEl.textContent = formatCurrency(amount);
+  amountEl.classList.toggle('text-danger', amount < 0);
+
+  const note = row.querySelector('.allocation-offset-note');
+  const partial = checked && amount !== full;
+  note.style.display = partial ? 'block' : 'none';
+  note.textContent = partial
+    ? `本次抵 ${formatAmount(amount)}，剩 ${formatAmount(round2(full - amount))} 待抵`
+    : '';
 }
 
 // 收款金額是勾選結果的推導值，不由使用者輸入。
@@ -891,15 +1024,22 @@ function updatePaymentAmount() {
 
   paymentAmount.value = total;
   paymentAmountDisplay.textContent = formatCurrency(total);
+
+  // 淨額為 0 但有分配＝純以退貨抵扣的 0 元沖帳單：沒有現金進出，收款方式不適用。
+  const offsetOnly = !legacyPayment && total === 0 && collectAllocations().length > 0;
+  paymentMethodGroup.style.display = offsetOnly ? 'none' : '';
+  paymentOffsetHint.style.display = offsetOnly ? '' : 'none';
 }
 
+// 分配金額帶正負號（退貨為負），所以用 !== 0 過濾而不是 > 0。
+// 部分抵扣被調到 0 的退貨列不送：DB 的 payment_orders 不接受 0 元的分配。
 function collectAllocations() {
   const allocations = [];
   document.querySelectorAll('.allocation-row').forEach(row => {
     if (!row.querySelector('.order-checkbox').checked) return;
 
     const amount = round2(Number(row.getAttribute('data-amount')));
-    if (amount > 0) {
+    if (amount !== 0) {
       allocations.push({ order_id: row.getAttribute('data-id'), amount });
     }
   });
@@ -961,6 +1101,10 @@ async function savePayment() {
 
   const amount = round2(Number(paymentAmount.value));
   const id = document.getElementById('payment-id').value;
+
+  // 0 元沖帳單不會動到現金，也不能事後從收款金額看出差別，送出前明確確認一次，
+  // 避免使用者以為自己在收錢、結果只抵掉了退貨。
+  if (amount === 0 && !confirm('本次不收現金，僅以退貨抵扣，確定要儲存沖帳單嗎？')) return;
 
   try {
     const { error } = await sb.rpc('save_payment_with_allocations', {
@@ -1043,7 +1187,7 @@ async function paymentSlipHtml(payment) {
         <tr>
           <td>${showOrderInfo ? formatDate(line.order_date) : ''}</td>
           <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
-          <td>${escapeHtml(line.product_name)}</td>
+          <td>${line.type === 'sale_return' ? '【退貨】' : ''}${escapeHtml(line.product_name)}</td>
           <td>${escapeHtml(line.spec || '')}</td>
           <td>${escapeHtml(line.qty)}</td>
           <td>${escapeHtml(line.unit || '')}</td>
@@ -1075,7 +1219,7 @@ async function paymentSlipHtml(payment) {
   return `
     <div class="print-doc-header">
       <h1>藝境裝璜材料行</h1>
-      <h2>收款單</h2>
+      <h2>${Number(payment.amount) === 0 ? '沖帳單' : '收款單'}</h2>
     </div>
     <div class="print-info-box">
       <div>
@@ -1099,7 +1243,7 @@ async function paymentSlipHtml(payment) {
       <tbody>
         <tr>
           <td>${formatDate(payment.payment_date)}</td>
-          <td>${methodMap[payment.method] || escapeHtml(payment.method)}</td>
+          <td>${methodLabel(payment)}</td>
           <td>${escapeHtml(payment.note || '')}</td>
           <td>${formatCurrency(payment.amount)}</td>
         </tr>

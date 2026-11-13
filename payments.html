@@ -348,6 +348,10 @@
                  data-dir-text="勾選這次{action}結清的{order}，{action}金額自動加總。">
               勾選這次收款結清的出貨單，收款金額自動加總。
             </div>
+            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;"
+                 data-dir-text="{returnOrder}為負數，會抵掉同次勾選的{order}；超過時只抵到淨額 0，剩餘留待下次。">
+              銷貨退回為負數，會抵掉同次勾選的出貨單；超過時只抵到淨額 0，剩餘留待下次。
+            </div>
             <!-- 明細預設展開，每列高度是原本的數倍，240px 只看得到一張單 -->
             <div id="payment-orders-list" style="max-height: 360px; overflow-y: auto; border: 2px solid var(--border-color); padding: 0.5rem; margin-bottom: 0.5rem;">
               <div class="empty-state" style="padding: 1rem 0;">請先選擇客戶</div>
@@ -360,8 +364,13 @@
               <strong id="payment-amount-display" style="font-family: 'Roboto', sans-serif; font-size: 1.1rem;">$0</strong>
             </div>
             <div id="payment-legacy-hint" class="text-warning" style="font-size: 0.85rem; margin-top: 0.5rem; display: none;"></div>
+            <!-- 淨額為 0（退貨剛好抵掉）時才顯示，同時隱藏下方的收款方式 -->
+            <div id="payment-offset-hint" class="text-warning" style="font-size: 0.85rem; margin-top: 0.5rem; display: none;"
+                 data-dir-text="本次不收現金，僅以{returnOrder}抵扣，將存成 0 元沖帳單。">
+              本次不收現金，僅以退貨抵扣，將存成 0 元沖帳單。
+            </div>
           </div>
-          <div class="form-group">
+          <div class="form-group" id="payment-method-group">
             <label data-dir-text="{action}方式">收款方式</label>
             <select id="payment-method" class="form-control" required>
               <option value="cash">現金</option>
