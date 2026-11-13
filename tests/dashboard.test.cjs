@@ -1,7 +1,8 @@
 const { launch, goto, cellTexts, Results } = require('./helpers');
 
 const text = (page, selector) => page.locator(selector).innerText().then(s => s.trim());
-const isCurrency = value => /^(-?NT\$|\$-?)/.test(value);
+// 有退貨後本月指標可能是負數（只有進貨退出時進貨成本為負），Intl 輸出為「-$6,700」
+const isCurrency = value => /^(-?NT\$|-?\$-?)/.test(value);
 
 (async () => {
   const r = new Results('總覽');

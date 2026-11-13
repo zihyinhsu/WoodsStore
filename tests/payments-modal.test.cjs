@@ -67,7 +67,7 @@ async function pickPartnerWithOrders(page, max = 12) {
 
     await toggleRow(page, 0);
     r.check('勾一張帶入該單全額', await hiddenAmount(page), first);
-    r.check('顯示金額同步', await shownAmount(page), Math.round(first));
+    r.check('顯示金額同步', await shownAmount(page), first);
 
     if (count > 1) {
       const second = await rowAmount(page, 1);

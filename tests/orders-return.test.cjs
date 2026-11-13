@@ -316,7 +316,8 @@ async function setLine(page, itemId, { qty, price }) {
   r.check('第一列小計', await textOf(lineRow(page, 'i-1').locator('.rt-subtotal')), '$300');
   r.check('整單折讓依比例預帶', await page.inputValue('#return-discount'), '10.71');
   r.check('稅額依比例預帶', await page.inputValue('#return-tax'), '5.36');
-  r.check('退貨合計＝小計 − 折讓 + 稅', await textOf(page.locator('#return-total')), '$295');
+  // 300 − 10.71 + 5.36 = 294.65：金額顯示到分，不再取整成 $295
+  r.check('退貨合計＝小計 − 折讓 + 稅', await textOf(page.locator('#return-total')), '$294.65');
 
   // 超過可退：離開欄位時夾回上限
   await setLine(page, 'i-1', { qty: 7 });

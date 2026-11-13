@@ -5,22 +5,21 @@
 
 export const PAGE_SIZE = 5;
 
+// 小數最多顯示到分（資料庫金額欄是 numeric(12,2)），整數照舊不帶小數。
+// 不能取整：進價 12.5 會顯示成 $13，明細單價 × 數量也會和小計對不起來。
+// 共用同一個 formatter，兩個函式的千分位與小數規則才不會各改各的。
+const AMOUNT_DIGITS = { minimumFractionDigits: 0, maximumFractionDigits: 2 };
+const currencyFormat = new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', ...AMOUNT_DIGITS });
+const amountFormat = new Intl.NumberFormat('zh-TW', AMOUNT_DIGITS);
+
 export function formatCurrency(amount) {
-  return new Intl.NumberFormat('zh-TW', {
-    style: 'currency',
-    currency: 'TWD',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount || 0);
+  return currencyFormat.format(amount || 0);
 }
 
-// 同 formatCurrency 的千分位與取整，但不帶 $：列印單據的金額欄已由表頭標明，
+// 同 formatCurrency 的千分位與小數規則，但不帶 $：列印單據的金額欄已由表頭標明，
 // 每格都印貨幣符號在窄欄的複寫紙上只是雜訊。
 export function formatAmount(amount) {
-  return new Intl.NumberFormat('zh-TW', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount || 0);
+  return amountFormat.format(amount || 0);
 }
 
 export function formatDate(dateString) {
