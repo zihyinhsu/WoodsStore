@@ -87,10 +87,11 @@ async function pickPartnerWithOrders(page, max = 12) {
   if (rowCount === 0) {
     r.info('略過進貨單付款狀態驗證', '查詢區間內沒有已確認的進貨單');
   } else {
-    r.check('已確認進貨單皆有付款狀態連結',
-      await page.locator('#orders-table tbody tr.clickable-row .payment-link').count(), rowCount);
+    // 「已退 N 張」連結沿用 .payment-link 樣式，要排除，否則有退貨的原單會被算兩次
+    const statusLinks = page.locator('#orders-table tbody tr.clickable-row .payment-link:not(.return-link)');
+    r.check('已確認進貨單皆有付款狀態連結', await statusLinks.count(), rowCount);
 
-    await page.locator('#orders-table tbody tr.clickable-row .payment-link').first().click();
+    await statusLinks.first().click();
     await page.waitForTimeout(3500);
     r.check('從進貨單跳轉後為付款分頁',
       await page.getAttribute('.tab-btn[data-dir="out"]', 'aria-selected'), 'true');

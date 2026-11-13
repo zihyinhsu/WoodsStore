@@ -678,6 +678,8 @@ tbody tr.clickable-row {
    日期一律不換行，否則會被折成「2026-10-」「31」兩行；徽章與操作鈕放進 flex 容器，
    換行時靠 gap 對齊左緣，不會因為按鈕間的空白字元而錯位。 */
 #orders-table td.nowrap-cell { white-space: nowrap; }
+/* 本頁沒有可列印的單時隱藏勾選欄（setupPrintSelection 切換 .no-print-pick） */
+.no-print-pick .col-pick { display: none; }
 #orders-table .cell-flex { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
 /* 間距交給 gap；沿用 .badge + .badge 的左邊距會讓換到第二行的徽章往右縮一格 */
 #orders-table .cell-flex .badge + .badge { margin-left: 0; }

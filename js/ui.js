@@ -345,6 +345,9 @@ export function setupPrintSelection({ table, printLabel, getItem, onPrint }) {
     const inputs = pageInputs();
     const checked = inputs.filter(i => i.checked).length;
     selectAll.disabled = inputs.length === 0;
+    // 本頁沒有任何可列印的單（例如整頁都是進貨）就整欄隱藏：只剩一個停用的全選框，
+    // 看起來像壞掉。代價是翻頁時表格寬度可能跳動，這是使用者選過的取捨。
+    tableEl.classList.toggle('no-print-pick', inputs.length === 0);
     selectAll.checked = inputs.length > 0 && checked === inputs.length;
     selectAll.indeterminate = checked > 0 && checked < inputs.length;
   };

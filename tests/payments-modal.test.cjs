@@ -7,13 +7,16 @@ const { launch, goto, Results } = require('./helpers');
 const hiddenAmount = page => page.inputValue('#payment-amount').then(Number);
 const shownAmount = page =>
   page.textContent('#payment-amount-display').then(t => Number(t.replace(/[^0-9.-]/g, '')));
+// 加總驗證只挑出貨單：退貨單勾選後會依部分抵扣規則自動調整金額（只勾退貨時調為 0），
+// 不是單純的 data-amount 相加，另由 payments-return.test.cjs 驗證。
+const ORDER_ROW = '.allocation-row[data-kind="order"]';
 const rowAmount = (page, i) =>
-  page.locator('.allocation-row').nth(i).getAttribute('data-amount').then(Number);
+  page.locator(ORDER_ROW).nth(i).getAttribute('data-amount').then(Number);
 
 // 原生 checkbox 被 .checkbox 樣式視覺隱藏（實際看到的是 .checkbox-box），
 // Playwright 的 check() 會因不可見而逾時，要點使用者真正點的 label。
 async function toggleRow(page, i) {
-  await page.locator('.allocation-row').nth(i).locator('label.checkbox').click();
+  await page.locator(ORDER_ROW).nth(i).locator('label.checkbox').click();
   await page.waitForTimeout(300);
 }
 
@@ -52,7 +55,7 @@ async function pickPartnerWithOrders(page, max = 12) {
   if (!partner) {
     r.info('略過勾選驗證', '所有客戶都沒有未收款的出貨單');
   } else {
-    const count = await page.locator('.allocation-row').count();
+    const count = await page.locator(ORDER_ROW).count();
     r.info('可勾選出貨單數', count);
 
     // 明細不再是按鈕展開，載入時就一次撈齊直接顯示
