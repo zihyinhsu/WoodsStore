@@ -128,6 +128,25 @@ export function toErrorMessage(error) {
   if (raw.includes('ORDER_TOTAL_BELOW_ALLOCATED')) {
     return '單據金額低於已收付金額，請先至收付款管理刪除對應的紀錄。';
   }
+  // 退貨（create_return_order）。前端已先擋掉正常操作會碰到的情況，
+  // 這些訊息多半是畫面開著時資料被別人改動（另一人先退了同一張）才會出現。
+  if (raw.includes('RETURN_QTY_EXCEEDS')) {
+    return '退貨數量超過原單可退數量，可能已被其他退貨單退掉，請重新開啟退貨視窗確認。';
+  }
+  if (raw.includes('RETURN_PRICE_EXCEEDS')) return '退貨單價不可高於原單單價。';
+  if (raw.includes('RETURN_STOCK_INSUFFICIENT')) {
+    return '目前庫存不足，無法退回這批進貨（貨可能已經賣出）。';
+  }
+  if (raw.includes('RETURN_DATE_INVALID')) return '退貨日期不可早於原單日期。';
+  if (raw.includes('RETURN_AMOUNT_EXCEEDS')) {
+    return '整單折讓或稅額的退貨合計超過原單，請調低後再試。';
+  }
+  if (raw.includes('ORDER_HAS_RETURNS')) {
+    return '此單據已有退貨單，請先作廢退貨單後再作廢原單。';
+  }
+  if (raw.includes('ALLOCATION_NET_NEGATIVE')) {
+    return '退貨抵扣超過所選進出貨單的金額，請多勾選進出貨單，或取消部分退貨單。';
+  }
   if (raw.includes('PAYMENT_PARTNER_INVALID')) return '找不到此往來對象，請重新整理後再試。';
   if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇往來對象。';
   if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收付款金額必須大於 0。';
@@ -148,6 +167,13 @@ export function toErrorMessage(error) {
 
   return raw || '發生未知錯誤，請稍後再試。';
 }
+
+// 兩種退貨類型的徽章：進出貨管理與商品進出明細都要顯示，樣式放同一處才不會一邊改色、另一邊漏改。
+// 銷貨退回用紅、進貨退出用朱紅（.badge-orange-red），與出貨的綠、進貨的藍、調整的橘都分得開。
+export const RETURN_TYPE_BADGES = {
+  'sale_return': '<span class="badge badge-red">銷貨退回</span>',
+  'purchase_return': '<span class="badge badge-orange-red">進貨退出</span>'
+};
 
 export function showToast(message, type = 'info') {
   let container = document.querySelector('.toast-container');

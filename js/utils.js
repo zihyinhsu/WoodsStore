@@ -140,6 +140,14 @@ export function round2(value) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+// 退貨在帳上是扣項：對帳單與商品進出明細一律以負數呈現。
+// 取絕對值再變號，是因為不同來源對退貨列的正負號不一致（明細 subtotal 恆為正、
+// 報表 view 則帶號），這裡統一後呼叫端不必各自判斷；0 維持 0，免得 Intl 印出「-$0」。
+export function toDeduction(value) {
+  const amount = Math.abs(Number(value) || 0);
+  return amount === 0 ? 0 : -amount;
+}
+
 export function sum(rows, field) {
   return rows.reduce((total, row) => total + Number(row[field] || 0), 0);
 }

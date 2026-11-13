@@ -10,6 +10,7 @@ const SUITES = [
   'forms.test.cjs',
   'dashboard.test.cjs',
   'products-tabs.test.cjs',
+  'orders-return.test.cjs',
   'partner-profit.test.cjs'
 ];
 

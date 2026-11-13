@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, RETURN_TYPE_BADGES } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink, round2 } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink, round2, toDeduction } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
 let currentProducts = [];
@@ -279,9 +279,10 @@ async function loadCostAnalysisData(productId, container, from, to) {
     const typeMap = {
       'purchase': '<span class="badge badge-blue">進貨</span>',
       'sale': '<span class="badge badge-green">出貨</span>',
-      'adjust': '<span class="badge badge-gray">調整</span>'
+      'adjust': '<span class="badge badge-gray">調整</span>',
+      ...RETURN_TYPE_BADGES
     };
-    
+
     let recordsHtml = '';
     if (movements.total === 0) {
       recordsHtml = '<div class="empty-state" style="padding: 2rem; border: 2px solid #1f1f1f; text-align: center; color: #666;">此區間無進出紀錄</div>';
@@ -290,19 +291,25 @@ async function loadCostAnalysisData(productId, container, from, to) {
         const isAdjust = item.type === 'adjust';
         const isSale = item.type === 'sale';
         const isPurchase = item.type === 'purchase';
-        
+        // 退貨的庫存方向與原單相反：銷貨退回貨回來（+）、進貨退出貨出去（−）。
+        // 金額則兩種都是扣項（銷貨退回少收、進貨退出少付）。
+        const isSaleReturn = item.type === 'sale_return';
+        const isPurchaseReturn = item.type === 'purchase_return';
+        const isReturn = isSaleReturn || isPurchaseReturn;
+
         let qtyStr = item.qty;
-        if (isPurchase) qtyStr = '+' + item.qty;
-        if (isSale) qtyStr = '-' + Math.abs(item.qty);
+        if (isPurchase || isSaleReturn) qtyStr = '+' + Math.abs(item.qty);
+        if (isSale || isPurchaseReturn) qtyStr = '-' + Math.abs(item.qty);
         if (isAdjust) qtyStr = item.qty > 0 ? '+' + item.qty : item.qty;
-        
+
         let priceStr = '--';
         let amountStr = '--';
-        
+
         if (!isAdjust) {
-          const effectivePrice = Math.abs(item.qty) > 0 ? item.subtotal / Math.abs(item.qty) : 0;
+          // 退貨列的 subtotal 帶號與否各來源不一，單價一律用絕對值算成正數，金額再統一轉成扣項。
+          const effectivePrice = Math.abs(item.qty) > 0 ? Math.abs(item.subtotal) / Math.abs(item.qty) : 0;
           priceStr = formatCurrency(effectivePrice);
-          amountStr = formatCurrency(item.subtotal);
+          amountStr = formatCurrency(isReturn ? toDeduction(item.subtotal) : item.subtotal);
         }
         
         return `
