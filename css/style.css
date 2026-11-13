@@ -674,6 +674,21 @@ tbody tr.clickable-row {
 .badge-orange-red { background: #fff0e8; color: #d9480f; }
 .badge-gray { background: #edf2f7; color: #4a5568; }
 
+/* 單據列表：已確認單多了「退貨」鈕後操作欄變三顆，窄螢幕下會擠窄其他欄。
+   日期一律不換行，否則會被折成「2026-10-」「31」兩行；徽章與操作鈕放進 flex 容器，
+   換行時靠 gap 對齊左緣，不會因為按鈕間的空白字元而錯位。 */
+#orders-table td.nowrap-cell { white-space: nowrap; }
+#orders-table .cell-flex { display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+/* 間距交給 gap；沿用 .badge + .badge 的左邊距會讓換到第二行的徽章往右縮一格 */
+#orders-table .cell-flex .badge + .badge { margin-left: 0; }
+/* 欄寬不夠時按鈕整顆換行，不要把「編輯」折成直排兩個字 */
+#orders-table .cell-flex .btn { white-space: nowrap; }
+/* 表格自動排版只會給操作欄略多於最小寬度，寬螢幕下三顆鈕仍會折成 2+1；
+   空間夠時強制一行，窄螢幕才讓它換行（直排），避免整張表被撐出橫向捲軸。 */
+@media (min-width: 1200px) {
+  #orders-table .cell-actions { flex-wrap: nowrap; }
+}
+
 /* 對帳單明細的「退貨」標籤。刻意只用外框與粗體、不靠顏色：對帳單是印在黑白點陣報表紙上的，
    紅字印出來與一般字無從分辨，標籤與負數的減號才是退貨列在紙上的辨識依據。 */
 .return-tag {

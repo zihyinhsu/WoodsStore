@@ -324,18 +324,18 @@ function renderOrderRow(order) {
   return `
     <tr class="clickable-row" data-id="${escapeHtml(order.id)}">
       ${printSelection.checkboxCell(order.id, isPrintable(order))}
-      <td>${formatDate(order.order_date)}</td>
+      <td class="nowrap-cell">${formatDate(order.order_date)}</td>
       <td>
         ${itemSummary(order.top_item_name, order.item_count)}
         <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
         ${batchLink(order)}
         ${returnLink(order)}
       </td>
-      <td>${TYPE_BADGES[order.type]} ${STATUS_BADGES[order.status]}</td>
+      <td><div class="cell-flex">${TYPE_BADGES[order.type]} ${STATUS_BADGES[order.status]}</div></td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
       <td class="${Number(order.total_amount) < 0 ? 'text-danger' : ''}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
       <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
-      <td>${orderActionButtons(order)}</td>
+      <td><div class="cell-flex cell-actions">${orderActionButtons(order)}</div></td>
     </tr>
   `;
 }
@@ -348,14 +348,14 @@ function renderGroupRow({ group, members }) {
   return `
     <tr class="clickable-row group-row" data-group-id="${escapeHtml(group.group_root_id)}">
       ${printSelection.checkboxCell(group.group_root_id, false)}
-      <td>${formatDate(group.order_date)}</td>
+      <td class="nowrap-cell">${formatDate(group.order_date)}</td>
       <td>
         ${itemSummary(root.top_item_name, root.item_count)}
         <span class="text-muted" style="font-size: 0.8rem; display: block;">
           ${escapeHtml(group.group_root_no)} 等 ${members.length} 批
         </span>
       </td>
-      <td>${TYPE_BADGES[group.type]} <span class="badge badge-gray">${members.length} 批</span></td>
+      <td><div class="cell-flex">${TYPE_BADGES[group.type]} <span class="badge badge-gray">${members.length} 批</span></div></td>
       <td>${escapeHtml(group.partner_name || '-')}</td>
       <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(group.total_amount)}</td>
       <td>${group.payment_status ? paymentLabel(group.type, group.payment_status, group.paid_amount) : '-'}</td>
