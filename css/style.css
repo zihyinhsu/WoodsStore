@@ -670,7 +670,21 @@ tbody tr.clickable-row {
 .badge-green { background: #f0fff4; color: #2f855a; }
 .badge-orange { background: #fffaf0; color: #c05621; }
 .badge-red { background: #fff5f5; color: #c53030; }
+/* 進貨退出：要與調整單的橘（.badge-orange）和銷貨退回的紅分得開，所以偏朱紅 */
+.badge-orange-red { background: #fff0e8; color: #d9480f; }
 .badge-gray { background: #edf2f7; color: #4a5568; }
+
+/* 對帳單明細的「退貨」標籤。刻意只用外框與粗體、不靠顏色：對帳單是印在黑白點陣報表紙上的，
+   紅字印出來與一般字無從分辨，標籤與負數的減號才是退貨列在紙上的辨識依據。 */
+.return-tag {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.3rem;
+  border: 1px solid currentColor;
+  font-size: 0.75em;
+  font-weight: 700;
+  line-height: 1.4;
+}
 
 /* 同格並排的 badge（單據列表的類型／狀態）各有 box-shadow，緊貼會糊在一起 */
 .badge + .badge { margin-left: 0.25rem; }

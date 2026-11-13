@@ -107,6 +107,24 @@
     .detail-table th {
       border-bottom: 2px solid var(--border-color);
     }
+    .return-info {
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+    .return-table input {
+      width: 90px;
+      padding: 0.25rem 0.5rem;
+    }
+    .return-table .rt-invalid {
+      border-color: var(--danger);
+    }
+    .return-table .num {
+      text-align: right;
+      font-family: 'Roboto', sans-serif;
+    }
+    .return-link {
+      font-size: 0.8rem;
+    }
   </style>
   <script>
     if (localStorage.getItem('sidebar-collapsed') === 'true') {
@@ -182,6 +200,8 @@
             <option value="purchase">進貨</option>
             <option value="sale">出貨</option>
             <option value="adjust">調整</option>
+            <option value="sale_return">銷貨退回</option>
+            <option value="purchase_return">進貨退出</option>
           </select>
         </div>
         <div class="form-group">
@@ -280,6 +300,9 @@
                 <option value="sale">出貨單</option>
                 <option value="purchase">進貨單</option>
                 <option value="adjust">調整單</option>
+                <!-- 退貨單只能經「退貨」按鈕建立；這兩個選項只為了編輯備註時型別能正確顯示，不讓使用者選 -->
+                <option value="sale_return" hidden>銷貨退回單</option>
+                <option value="purchase_return" hidden>進貨退出單</option>
               </select>
             </div>
             <div class="form-group">
@@ -348,6 +371,66 @@
         <button class="btn btn-outline close-btn">取消</button>
         <button class="btn btn-outline" id="btn-save-draft">存為草稿</button>
         <button class="btn btn-primary" id="btn-save-order">建立單據</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Return Modal：內容由 js/order-return.js 填入 -->
+  <div class="modal-overlay" id="return-modal">
+    <div class="modal-content" style="max-width: 900px;">
+      <div class="modal-header">
+        <h3 id="return-modal-title">退貨</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="return-info" class="return-info"></div>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="form-group">
+            <label for="return-date">退貨日期</label>
+            <input type="date" id="return-date" class="form-control" required>
+          </div>
+          <div class="form-group">
+            <label for="return-note">備註</label>
+            <input type="text" id="return-note" class="form-control">
+          </div>
+        </div>
+
+        <table class="detail-table return-table" id="return-lines">
+          <thead>
+            <tr>
+              <th>品名</th>
+              <th>原數量</th>
+              <th>已退</th>
+              <th>可退</th>
+              <th>退貨數量</th>
+              <th>單價</th>
+              <th>小計</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="d-flex justify-between align-center mt-4 pt-3" style="border-top: 2px solid var(--border-color);">
+          <div class="d-flex gap-3">
+            <div class="form-group mb-0">
+              <label for="return-discount">整單折讓</label>
+              <input type="number" id="return-discount" class="form-control" value="0" min="0" step="any" style="width: 100px;">
+            </div>
+            <div class="form-group mb-0">
+              <label for="return-tax">稅額</label>
+              <input type="number" id="return-tax" class="form-control" value="0" min="0" step="any" style="width: 100px;">
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-muted" style="font-weight: 600;">退貨合計</div>
+            <div style="font-size: 2rem; font-weight: bold; color: var(--primary); font-family: 'Bebas Neue', sans-serif; letter-spacing: 1px;" id="return-total">NT$ 0</div>
+          </div>
+        </div>
+        <p id="return-hint" class="text-muted" style="font-size: 0.85rem; margin-top: 0.75rem;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline close-btn">取消</button>
+        <button class="btn btn-primary" id="btn-save-return">建立退貨單</button>
       </div>
     </div>
   </div>

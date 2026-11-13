@@ -1,6 +1,7 @@
 import { sb } from './supabase.js';
-import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
+import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection, RETURN_TYPE_BADGES } from './ui.js';
 import { requireAuth } from './auth.js';
+import { canReturn, openReturnModal, setupOrderReturn } from './order-return.js';
 import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy } from './utils.js';
 
 let currentPage = 1;
@@ -32,9 +33,16 @@ async function init() {
   setupResponsiveTable('#orders-table');
   printSelection = setupPrintSelection({
     table: '#orders-table',
-    printLabel: '列印出貨單',
+    printLabel: '列印出貨／退貨單',
     getItem: id => ordersById.get(id),
-    onPrint: printShippingOrders
+    onPrint: printOrderSlips
+  });
+  setupOrderReturn({
+    // 退貨會動到庫存：商品快取要一起更新，否則新增單據的下拉選單還是退貨前的庫存。
+    onCreated: () => {
+      loadOrders();
+      loadProductsCache();
+    }
   });
 
   // Parse URL parameters
@@ -129,7 +137,7 @@ async function fetchOrderRows() {
 
   // 付款狀態是推導值（order_search_view 直接輸出 order_payment_summary_view 的結果），
   // 因此能下推成 SQL 條件，不必把資料撈回瀏覽器過濾，伺服器端分頁與 count 才會正確。
-  // view 只對已確認的出貨單（應收）與進貨單（應付）給值，其餘給 null，
+  // view 只對已確認的出貨單（應收）與進貨單（應付）、以及兩種退貨單（抵扣狀態）給值，其餘給 null，
   // 所以下了條件就自動排除調整／草稿／作廢單；要只看應收或應付，搭配類型條件即可。
   if (searchPayment.value === 'outstanding') {
     query = query.in('payment_status', ['unpaid', 'partial']);
@@ -211,7 +219,8 @@ function autoExpandSingleResult() {
 const TYPE_BADGES = {
   'purchase': '<span class="badge badge-blue">進貨</span>',
   'sale': '<span class="badge badge-green">出貨</span>',
-  'adjust': '<span class="badge badge-orange">調整</span>'
+  'adjust': '<span class="badge badge-orange">調整</span>',
+  ...RETURN_TYPE_BADGES
 };
 
 // data-status 讓樣式與測試不必靠欄位位置定位（類型與狀態同格，索引不再對得上欄名）。
@@ -229,14 +238,26 @@ const PAYMENT_LABELS = {
 
 const ACTION_BTN_STYLE = 'padding: 0.25rem 0.5rem; font-size: 0.8rem;';
 
+// 退貨單沒有「收到錢」的概念，是被收款／付款勾選抵掉，所以用抵扣的說法。
+const RETURN_PAYMENT_LABELS = {
+  'unpaid': '<span class="text-danger">未抵扣</span>',
+  'partial': '<span class="text-warning">部分抵扣</span>',
+  'paid': '<span class="text-success">已抵扣</span>'
+};
+
+const isReturnType = (type) => type === 'sale_return' || type === 'purchase_return';
+
 const hasPaymentStatus = (order) =>
-  (order.type === 'sale' || order.type === 'purchase') && order.status === 'confirmed';
+  (order.type === 'sale' || order.type === 'purchase' || isReturnType(order.type)) && order.status === 'confirmed';
 
 function paymentLabel(type, status, paidAmount) {
-  const action = type === 'purchase' ? '付' : '收';
-  const label = PAYMENT_LABELS[status] || PAYMENT_LABELS['unpaid'];
+  const isReturn = isReturnType(type);
+  const action = isReturn ? '抵' : (type === 'purchase' ? '付' : '收');
+  const labels = isReturn ? RETURN_PAYMENT_LABELS : PAYMENT_LABELS;
+  const label = labels[status] || labels['unpaid'];
+  // 退貨單的沖帳金額是負數（正負號跟著單據金額走），顯示「已抵 $50」不顯示成「已抵 -$50」。
   const detail = status === 'partial'
-    ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已${action} ${formatCurrency(Number(paidAmount || 0))}</span>`
+    ? `<span class="text-muted" style="font-size: 0.8rem; display: block;">已${action} ${formatCurrency(Math.abs(Number(paidAmount || 0)))}</span>`
     : '';
   return label + detail;
 }
@@ -245,7 +266,7 @@ function paymentLabel(type, status, paidAmount) {
 // 點擊導向收付款管理並帶 order_id，讓使用者直接看到／建立對應的收款或付款；
 // 方向由收付款頁依單據類型自行判斷，這裡不必帶 dir。
 function paymentLink(order) {
-  const action = order.type === 'purchase' ? '付' : '收';
+  const action = (order.type === 'purchase' || order.type === 'purchase_return') ? '付' : '收';
   return `
     <a href="payments.html?order_id=${encodeURIComponent(order.id)}" class="payment-link"
        title="查看此單據的${action}款紀錄">${paymentLabel(order.type, order.payment_status, order.paid_amount)}</a>`;
@@ -263,6 +284,24 @@ function batchLink(order) {
        style="font-size: 0.8rem;" title="篩出同一批的單據">${escapeHtml(label)}</a>`;
 }
 
+// 退貨單與原單互相連結：原單標「已退 N 張」、退貨單標「退自 ORD-xxx」，
+// 點了以原單號篩出原單與它的所有退貨單（order_search_view 的 search_text 併入了原單號）。
+function returnLink(order) {
+  let label = '';
+  let keyword = '';
+  if (order.return_of_order_no) {
+    label = `退自 ${order.return_of_order_no}`;
+    keyword = order.return_of_order_no;
+  } else if (Number(order.return_count) > 0) {
+    label = `已退 ${Number(order.return_count)} 張`;
+    keyword = order.order_no;
+  }
+  if (!label) return '';
+  return `
+    <a href="#" class="payment-link return-link" data-keyword="${escapeHtml(keyword)}"
+       title="篩出原單與它的退貨單">${escapeHtml(label)}</a>`;
+}
+
 function orderActionButtons(order) {
   const id = escapeHtml(order.id);
   const buttons = [];
@@ -271,6 +310,9 @@ function orderActionButtons(order) {
   }
   if (order.status === 'draft') {
     buttons.push(`<button class="btn btn-primary btn-confirm" data-id="${id}" style="${ACTION_BTN_STYLE}">確認</button>`);
+  }
+  if (canReturn(order)) {
+    buttons.push(`<button class="btn btn-outline btn-return" data-id="${id}" style="${ACTION_BTN_STYLE}">退貨</button>`);
   }
   if (order.status !== 'void') {
     buttons.push(`<button class="btn btn-outline btn-void" data-id="${id}" style="${ACTION_BTN_STYLE}">作廢</button>`);
@@ -281,16 +323,17 @@ function orderActionButtons(order) {
 function renderOrderRow(order) {
   return `
     <tr class="clickable-row" data-id="${escapeHtml(order.id)}">
-      ${printSelection.checkboxCell(order.id, order.type === 'sale' && order.status !== 'void')}
+      ${printSelection.checkboxCell(order.id, isPrintable(order))}
       <td>${formatDate(order.order_date)}</td>
       <td>
         ${itemSummary(order.top_item_name, order.item_count)}
         <span class="text-muted" style="font-size: 0.8rem; display: block;">${escapeHtml(order.order_no)}</span>
         ${batchLink(order)}
+        ${returnLink(order)}
       </td>
       <td>${TYPE_BADGES[order.type]} ${STATUS_BADGES[order.status]}</td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
-      <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
+      <td class="${Number(order.total_amount) < 0 ? 'text-danger' : ''}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
       <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
       <td>${orderActionButtons(order)}</td>
     </tr>
@@ -349,17 +392,11 @@ function renderOrdersTable() {
   });
 
   // 篩整組靠 search_text 併入的原單號（order_search_view），不另開查詢條件。
-  // 日期與付款狀態一併清掉：分批到貨常跨月，原單又可能已付清，留著會把同組的單濾掉。
   document.querySelectorAll('.batch-link').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      searchKeyword.value = link.getAttribute('data-root-no');
-      searchDateFrom.value = '';
-      searchDateTo.value = '';
-      searchPayment.value = 'all';
-      currentPage = 1;
-      loadOrders();
+      filterByKeyword(link.getAttribute('data-root-no'));
     });
   });
 
@@ -397,9 +434,38 @@ function bindOrderActions(container) {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const order = ordersById.get(btn.getAttribute('data-id'));
-      if (order) printShippingOrders([order]);
+      if (order) printOrderSlips([order]);
     });
   });
+
+  container.querySelectorAll('.btn-return').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const order = ordersById.get(btn.getAttribute('data-id'));
+      if (order) openReturnModal(order);
+    });
+  });
+
+  container.querySelectorAll('.return-link').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // 類型也要放開：原本篩「出貨」時，退貨單（另一種類型）會被濾掉，點了只看到原單。
+      searchType.value = 'all';
+      filterByKeyword(link.getAttribute('data-keyword'));
+    });
+  });
+}
+
+// 以單號關鍵字篩出相關單據。日期與付款狀態一併清掉：
+// 分批到貨、退貨常跨月，原單又可能已付清，留著會把同一組的單濾掉。
+function filterByKeyword(keyword) {
+  searchKeyword.value = keyword;
+  searchDateFrom.value = '';
+  searchDateTo.value = '';
+  searchPayment.value = 'all';
+  currentPage = 1;
+  loadOrders();
 }
 
 function toggleRowDetail(row) {
@@ -461,9 +527,14 @@ async function loadItemsByOrder(orderIds) {
   return groupBy(data || [], 'order_id');
 }
 
+// 只印出貨單與銷貨退回單（給客戶簽收）；進貨單與進貨退出是供應商那邊的單據，不印。
+const isPrintable = (order) =>
+  (order.type === 'sale' || order.type === 'sale_return') && order.status !== 'void';
+
 function printButton(order) {
-  if (order.type !== 'sale' || order.status === 'void') return '';
-  return `<button class="btn btn-outline btn-print-shipping" data-id="${escapeHtml(order.id)}" style="${ACTION_BTN_STYLE}">列印出貨單</button>`;
+  if (!isPrintable(order)) return '';
+  const label = order.type === 'sale_return' ? '列印退貨單' : '列印出貨單';
+  return `<button class="btn btn-outline btn-print-shipping" data-id="${escapeHtml(order.id)}" style="${ACTION_BTN_STYLE}">${label}</button>`;
 }
 
 function renderItemsTable(items) {
@@ -516,6 +587,7 @@ async function buildGroupDetail(members) {
           <span class="text-muted" style="margin: 0 0.5rem;">${escapeHtml(order.order_no)}</span>
           ${STATUS_BADGES[order.status]}
           ${order.parent_order_id ? '' : '<span class="badge badge-gray">原單</span>'}
+          ${returnLink(order)}
         </div>
         <div class="d-flex align-center" style="gap: 0.75rem; flex-wrap: wrap;">
           <span style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</span>
@@ -531,7 +603,7 @@ async function buildGroupDetail(members) {
 
 // 明細與客戶資料一次撈齊再組版：多張一起印時逐張查詢會慢到列印對話框遲遲不出來。
 // 回傳是否有開出列印，供勾選列印判斷要不要清除選取（見 ui.js 的 setupPrintSelection）。
-async function printShippingOrders(orders) {
+async function printOrderSlips(orders) {
   const orderIds = orders.map(o => o.id);
   const partnerIds = [...new Set(orders.map(o => o.partner_id).filter(Boolean))];
 
@@ -550,8 +622,10 @@ async function printShippingOrders(orders) {
     const partnersById = new Map((partnersRes.data || []).map(p => [p.id, p]));
     const balancesById = new Map((balancesRes.data || []).map(b => [b.id, b.balance]));
 
+    // 出貨單與退貨單可以混選一起印，每張各用自己的格式。
     printSlips(orders.map(order =>
-      shippingSlipHtml(order, itemsByOrder.get(order.id) || [], partnersById.get(order.partner_id), balancesById.get(order.partner_id))));
+      slipHtml(order, itemsByOrder.get(order.id) || [], partnersById.get(order.partner_id), balancesById.get(order.partner_id),
+        order.type === 'sale_return' ? 'return' : 'shipping')));
     return true;
   } catch (error) {
     console.error('Error loading data for print:', error);
@@ -560,15 +634,40 @@ async function printShippingOrders(orders) {
   }
 }
 
+// 出貨單與銷貨退回單共用同一份版面，只有下表的文字不同（SLIP_KINDS）。
+// 出貨單輸出必須與拆出共用函式之前逐位元組相同（tests/orders-return.test.cjs 用黃金檔比對），
+// 所以模板的空白與換行不可隨手整理；選用的區塊用「整段字串或空字串」插入，不留多餘的換行。
+const SLIP_KINDS = {
+  shipping: {
+    title: '出貨單',
+    dateLabel: '出貨日期',
+    totalLabel: '明細合計',
+    signLabel: '客戶簽收：'
+  },
+  return: {
+    title: '銷貨退回單',
+    dateLabel: '退貨日期',
+    // 印正數：這張單是給客戶簽收的，印成負數客戶會誤會成要付錢
+    totalLabel: '退貨合計',
+    signLabel: '客戶簽收（確認退回品項）：'
+  }
+};
+
 // 金額與明細合計取明細小計（含明細折扣、不含整單折讓與稅），與對帳單同口徑。
 // 應收餘額則是列印當下的客戶累計餘額（partner_balance_view，含折讓與稅），不是開單當時的，
-// 所以兩者本來就對不上，不要拿合計去推餘額。
-function shippingSlipHtml(order, items, partner, balance) {
-  const itemsTotal = round2(sum(items, 'subtotal'));
+// 所以兩者本來就對不上，不要拿合計去推餘額。退貨單同理：餘額已扣掉這張退貨，補印舊單時是當下餘額。
+function slipHtml(order, items, partner, balance, kind = 'shipping') {
+  const k = SLIP_KINDS[kind];
+  // order_items.subtotal 恆為正（生成欄位 abs(qty)），abs 只是防萬一，不要因此以為退貨明細會是負的
+  const itemsTotal = round2(Math.abs(sum(items, 'subtotal')));
+  const originalNo = kind === 'return' && order.return_of_order_no
+    ? `
+        <p><strong>原出貨單號：</strong>${escapeHtml(order.return_of_order_no)}</p>`
+    : '';
   return `
     <div class="print-doc-header">
       <h1>藝境裝璜材料行</h1>
-      <h2>出貨單</h2>
+      <h2>${k.title}</h2>
     </div>
     <div class="print-info-box">
       <div>
@@ -577,8 +676,8 @@ function shippingSlipHtml(order, items, partner, balance) {
         <p><strong>統一編號：</strong>${escapeHtml(partner?.tax_id || '')}</p>
       </div>
       <div>
-        <p><strong>單號：</strong>${escapeHtml(order.order_no)}</p>
-        <p><strong>出貨日期：</strong>${formatDate(order.order_date)}</p>
+        <p><strong>單號：</strong>${escapeHtml(order.order_no)}</p>${originalNo}
+        <p><strong>${k.dateLabel}：</strong>${formatDate(order.order_date)}</p>
         <p><strong>聯絡電話：</strong>${escapeHtml(partner?.phone || '')}</p>
       </div>
     </div>
@@ -605,7 +704,7 @@ function shippingSlipHtml(order, items, partner, balance) {
           </tr>
         `).join('')}
         <tr>
-          <td colspan="5" style="text-align: right; font-weight: bold;">明細合計</td>
+          <td colspan="5" style="text-align: right; font-weight: bold;">${k.totalLabel}</td>
           <td style="font-weight: bold;">${formatCurrency(itemsTotal)}</td>
         </tr>
         ${balance !== null && balance !== undefined ? `
@@ -617,7 +716,7 @@ function shippingSlipHtml(order, items, partner, balance) {
     </table>
     <div class="print-footer">
       <div>
-        客戶簽收：<span class="signature-line"></span>
+        ${k.signLabel}<span class="signature-line"></span>
       </div>
     </div>
   `;

@@ -1,7 +1,7 @@
 import { showToast } from './ui.js';
 import { requireAuth } from './auth.js';
 import { fetchStatementSummary, fetchStatementLines } from './statement-data.js';
-import { formatCurrency, formatDate, escapeHtml, dateRange, round2 } from './utils.js';
+import { formatCurrency, formatDate, escapeHtml, dateRange, round2, toDeduction } from './utils.js';
 
 // DOM Elements
 const dateFrom = document.getElementById('statement-date-from');
@@ -269,16 +269,23 @@ function renderLineRows(lines) {
   return lines.map(line => {
     const showOrderInfo = line.order_no !== lastOrderNo;
     lastOrderNo = line.order_no;
+    // 退貨列的數量與金額是扣項，單價維持正數（那是退回的商品單價，不是負的價格）。
+    const isReturn = line.type === 'sale_return';
+    const qty = isReturn ? toDeduction(line.qty) : line.qty;
+    const subtotal = isReturn ? toDeduction(line.subtotal) : line.subtotal;
+    const orderNo = showOrderInfo
+      ? escapeHtml(line.order_no) + (isReturn ? '<span class="return-tag">退貨</span>' : '')
+      : '';
     return `
       <tr>
         <td>${showOrderInfo ? escapeHtml(formatDate(line.order_date)) : ''}</td>
-        <td>${showOrderInfo ? escapeHtml(line.order_no) : ''}</td>
+        <td>${orderNo}</td>
         <td>${escapeHtml(line.product_name)}</td>
         <td>${escapeHtml(line.spec || '')}</td>
-        <td>${escapeHtml(line.qty)}</td>
+        <td>${escapeHtml(qty)}</td>
         <td>${escapeHtml(line.unit || '')}</td>
         <td>${escapeHtml(formatCurrency(line.unit_price))}</td>
-        <td>${escapeHtml(formatCurrency(line.subtotal))}</td>
+        <td>${escapeHtml(formatCurrency(subtotal))}</td>
       </tr>
     `;
   }).join('');
