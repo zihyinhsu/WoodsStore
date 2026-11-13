@@ -149,10 +149,10 @@ export function toErrorMessage(error) {
   }
   if (raw.includes('PAYMENT_PARTNER_INVALID')) return '找不到此往來對象，請重新整理後再試。';
   if (raw.includes('PAYMENT_PARTNER_REQUIRED')) return '請選擇往來對象。';
-  if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收付款金額必須大於 0。';
+  if (raw.includes('PAYMENT_AMOUNT_INVALID')) return '收付款金額不可為負數；金額為 0 的沖帳單必須勾選單據，且退貨與進出貨剛好互相抵銷。';
   if (raw.includes('PAYMENT_METHOD_INVALID')) return '收付款方式不正確。';
   if (raw.includes('PAYMENT_NOT_FOUND')) return '找不到此收付款紀錄，可能已被刪除。';
-  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '單據的沖帳金額必須大於 0。';
+  if (raw.includes('ALLOCATION_AMOUNT_INVALID')) return '沖帳金額不正確：不可為 0，且進出貨單須為正數、退貨單須為負數。';
 
   if (/duplicate key value/i.test(raw)) {
     const matched = Object.keys(UNIQUE_FIELD_LABELS).find(key => raw.includes(key));

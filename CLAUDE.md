@@ -30,7 +30,7 @@
 先看這份清單，再決定要不要新增：
 
 `PAGE_SIZE`、`formatCurrency`、`formatAmount`、`formatDate`、`toDateInputValue`、`dateRange`、`debounce`、
-`escapeHtml`、`round2`、`sum`、`groupBy`、`totalPages`
+`escapeHtml`、`round2`、`toDeduction`、`sum`、`groupBy`、`totalPages`
 
 ## 二、日期：禁用 `toISOString()` 取日期字串
 
@@ -77,6 +77,8 @@ npm test                           # 另開終端機
 - **庫存是流水帳**：單據明細即異動紀錄，不可直接改 `stock_qty`。
 - **單據不可編輯**：開錯要作廢重開，保留追溯紀錄。已確認的單據只開放改備註。
 - **付款狀態是推導值**：由收款紀錄算出，不可直接寫入。
+- **退貨單金額為負**：`sale_return`／`purchase_return` 的 `order_total`、沖帳金額都帶負號，只能經 `create_return_order` 建立。
+  `order_items.subtotal` 恆為正，自己從 `subtotal` 加總的地方要依 `orders.type` 補正負號。
 - **報表聚合寫在 SQL function**：前端只取彙總結果並分頁，不要把明細拉到瀏覽器計算。
 
 ## 八、環境變數
