@@ -2,7 +2,7 @@
 -- 進銷存系統 — 完整 schema（整併版）
 -- ============================================================
 -- 用途：在一個「全新」的 Supabase 專案上一次建到目前最終狀態。
---       等價於依序執行 migration.sql + patch-001 ~ patch-027 的結果，
+--       等價於依序執行 migration.sql + patch-001 ~ patch-030 的結果，
 --       但只保留每個物件的最終定義，並依相依關係重新排序。
 --
 -- 與原始 patch 系列的差異（刻意）：
@@ -83,15 +83,18 @@ create table partners (
 );
 
 -- ----------------------------------------
--- 單據主檔（進貨 / 銷貨 / 調整）
+-- 單據主檔（進貨 / 銷貨 / 調整 / 銷貨退回 / 進貨退出）
 -- payment_status 欄位保留但為死值：付款狀態一律由收付款紀錄推導
 -- （見 order_payment_summary_view，出貨單與進貨單皆同）。update_order_meta 會拒絕寫入。
+-- 退貨單（sale_return／purchase_return）另開類型而不用負數量的 sale／purchase：
+-- 現有查詢多半寫死 type in ('sale','purchase')，退貨單預設不會被悄悄算錯，要納入的地方逐一明確改。
 -- ----------------------------------------
 create table orders (
   id              uuid primary key default gen_random_uuid(),
   order_no        text unique not null,            -- 單號
   type            text not null
-                  check (type in ('purchase','sale','adjust')),
+                  constraint orders_type_check
+                  check (type in ('purchase','sale','adjust','sale_return','purchase_return')),
   status          text not null default 'confirmed'
                   check (status in ('draft','confirmed','void')),  -- 草稿/確認/作廢
   partner_id      uuid references partners(id),
@@ -102,11 +105,21 @@ create table orders (
                   check (payment_status in ('unpaid','partial','paid')),
   note            text,
   created_at      timestamptz default now(),
-  parent_order_id uuid references orders(id)       -- 接續的原單（分批進出貨，見 guard_order_parent）
+  parent_order_id uuid references orders(id),      -- 接續的原單（分批進出貨，見 guard_order_parent）
+  return_of_order_id uuid references orders(id),   -- 退貨單退自哪張原單（見 create_return_order）
+  -- 退貨單一定要有原單、其他類型一定不能有：連結欄位與類型必須同進退，
+  -- 否則會出現「沒有原單的退貨」（可退數量無從限制）或「掛著原單的一般單」。
+  constraint orders_return_link_check
+    check ((type in ('sale_return','purchase_return')) = (return_of_order_id is not null))
 );
 
 comment on column orders.parent_order_id is
   '接續的原單（分批進出貨）。只允許兩層，群組鍵為 coalesce(parent_order_id, id)。見 guard_order_parent。';
+
+-- 不用 parent_order_id 表達退貨：它是分批進出貨的分組鍵（只允許兩層、同類型、
+-- 已有接續單的原單不能再被接續），退貨用它會被 search_order_groups 算進同一組的合計。
+comment on column orders.return_of_order_id is
+  '退貨單退自哪張原單（sale_return 指向 sale、purchase_return 指向 purchase）。一張退貨單只對應一張原單。';
 
 -- ----------------------------------------
 -- 單據明細（＝庫存異動流水帳）
@@ -116,13 +129,19 @@ create table order_items (
   id          uuid primary key default gen_random_uuid(),
   order_id    uuid not null references orders(id) on delete cascade,
   product_id  uuid not null references products(id),
-  qty         int not null,                        -- 進貨為正、銷貨為負（由 RPC 控制）
+  qty         int not null,                        -- 進貨／銷貨退回為正、銷貨／進貨退出為負（由 RPC 控制）
   unit_price  numeric(12,2) not null default 0,
   discount    numeric(5,2) default 0,              -- 明細折扣（%）
   subtotal    numeric(12,2)
               generated always as (abs(qty) * unit_price * (1 - discount/100)) stored,
-  unit_cost   numeric(12,2)                        -- 成本快照，確認當下寫定
+  unit_cost   numeric(12,2),                       -- 成本快照，確認當下寫定
+  return_of_item_id uuid references order_items(id) -- 退貨明細退自原單哪一列
 );
+
+-- 用明細層級連結而不只連到原單：同一張單可能有同商品不同單價的兩列，
+-- 要靠它限制每列可退數量，並沿用該列的成本快照。
+comment on column order_items.return_of_item_id is
+  '退貨明細退自原單的哪一列。用來限制每列可退數量（原數量 − 有效退貨合計）並沿用該列的 unit_cost。';
 
 comment on column order_items.unit_cost is
   '確認出貨當下寫定的成本快照。進貨=實付單價；出貨=截至出貨日的累計進貨加權平均。';
@@ -137,7 +156,10 @@ create table payments (
   payment_no    text unique not null,
   partner_id    uuid not null references partners(id),
   payment_date  date not null default current_date,
-  amount        numeric(12,2) not null check (amount > 0),
+  -- 允許 0：換貨時退貨剛好抵掉出貨、沒有現金進出，仍要留一筆沖帳單把兩張單結掉。
+  -- 0 元的收款必須有分配且淨額為 0，由 assert_payment_allocation_net 把關。
+  amount        numeric(12,2) not null
+                constraint payments_amount_check check (amount >= 0),
   method        text not null default 'cash'
                 check (method in ('cash','transfer','check')),
   note          text,
@@ -152,13 +174,15 @@ create table payment_orders (
   id          uuid primary key default gen_random_uuid(),
   payment_id  uuid not null references payments(id) on delete cascade,
   order_id    uuid not null references orders(id),
+  -- 退貨單的分配為負數（正負號與單據金額一致），所以只擋 0；
+  -- 正負號是否與單據類型相符，要看單據才知道，交給 validate_payment_order_allocations。
   amount      numeric(12,2) not null
-              constraint payment_orders_amount_positive check (amount > 0),
+              constraint payment_orders_amount_nonzero check (amount <> 0),
   unique (payment_id, order_id)
 );
 
 comment on column payment_orders.amount is
-  '此筆收付款分配到該張單據（出貨單或進貨單）的金額。單一事實來源，付款狀態由此推導。';
+  '此筆收付款分配到該張單據（出貨單、進貨單或退貨單）的金額，正負號與單據金額一致（退貨單為負）。單一事實來源，付款狀態由此推導。';
 
 
 -- ============================================================
@@ -188,9 +212,21 @@ create index idx_orders_status_type_date
 -- 單據分配總額驗證與收款彙總
 create index idx_payment_orders_order_amount
   on payment_orders (order_id) include (amount);
+-- 同時涵蓋 sale_return：statement_line_view 的條件是 type in ('sale','sale_return')，
+-- partial index 的 where 必須蘊含查詢條件才用得上，只寫 type = 'sale' 對帳單會退回掃全表。
 create index idx_orders_sale_confirmed
   on orders (partner_id, order_date desc)
-  where type = 'sale' and status = 'confirmed';
+  where type in ('sale', 'sale_return') and status = 'confirmed';
+
+-- 退貨：依原單找退貨單（可退數量、ORDER_HAS_RETURNS、return_count）
+create index idx_orders_return_of
+  on orders (return_of_order_id)
+  where return_of_order_id is not null;
+
+-- 退貨：依原明細列算已退數量
+create index idx_order_items_return_of
+  on order_items (return_of_item_id)
+  where return_of_item_id is not null;
 
 -- 分批進出貨：依原單找接續單（群組張數、ORDER_HAS_CHILDREN 檢查）
 create index idx_orders_parent
@@ -236,8 +272,26 @@ from stock_view
 where stock_qty < safety_stock;
 
 -- ----------------------------------------
+-- 金額正負號：錢往哪個方向就用哪個正負號（退貨單為 -1，其餘 1）
+-- order_items.subtotal 是 abs(qty) 算出的生成欄位、恆為正，凡是自己從 subtotal 加總的地方
+-- （order_total_view、order_search_view、dashboard_summary、product_movement_base、
+-- purchase_avg_cost_asof、product_cost_movements、statement_line_view）都靠這支補正負號，
+-- 判斷規則只留一份：日後再加類型，不必在十幾處各改一次。
+-- ----------------------------------------
+create or replace function order_amount_sign(p_type text)
+returns int
+language sql
+immutable
+parallel safe
+as $$
+  select case when p_type in ('sale_return', 'purchase_return') then -1 else 1 end;
+$$;
+
+-- ----------------------------------------
 -- 單據金額（抽出重複的總額算式，供餘額／付款狀態共用同一定義）
 -- discount / tax 可能為 null，一律 coalesce，否則整張單總額會變 null。
+-- 退貨單（sale_return／purchase_return）的 order_total 為負數：照這個正負號一路加總，
+-- 客戶餘額、對帳單、收款淨額自然正確，不需要每處各自判斷「是不是退貨」。
 -- ----------------------------------------
 create view order_total_view as
 select
@@ -247,9 +301,9 @@ select
   o.order_date,
   o.type,
   o.status,
-  (coalesce(items.item_total, 0)
+  (order_amount_sign(o.type) * (coalesce(items.item_total, 0)
     - coalesce(o.discount, 0)
-    + coalesce(o.tax, 0))::numeric(12,2) as order_total
+    + coalesce(o.tax, 0)))::numeric(12,2) as order_total
 from orders o
 left join (
   select order_id, sum(subtotal)::numeric(12,2) as item_total
@@ -259,8 +313,11 @@ left join (
 
 -- ----------------------------------------
 -- 單據收付款彙總（付款狀態的唯一推導來源）
--- 涵蓋已確認的出貨單（應收）與進貨單（應付），以 type 區分；調整/草稿/作廢單不談收付。
+-- 涵蓋已確認的出貨單（應收）、進貨單（應付）與兩種退貨單，以 type 區分；調整/草稿/作廢單不談收付。
 -- type 放在最後一欄：create or replace view 只能在尾端追加欄位（patch-027）。
+-- 退貨單的 order_total、paid_amount、outstanding_amount 都是負數（「待抵扣」額度），
+-- 所以 outstanding 對退貨單用 least(…, 0)；狀態比較也全改用絕對值，
+-- 否則 paid 為負的退貨單會被 <= 0 判成永遠未抵扣（patch-030）。
 -- ----------------------------------------
 create view order_payment_summary_view as
 select
@@ -270,23 +327,27 @@ select
   ot.order_date,
   ot.order_total,
   coalesce(sum(po.amount), 0)::numeric(12,2) as paid_amount,
-  greatest(ot.order_total - coalesce(sum(po.amount), 0), 0)::numeric(12,2) as outstanding_amount,
+  (case
+    when ot.order_total < 0 then least(ot.order_total - coalesce(sum(po.amount), 0), 0)
+    else greatest(ot.order_total - coalesce(sum(po.amount), 0), 0)
+  end)::numeric(12,2) as outstanding_amount,
   case
-    when coalesce(sum(po.amount), 0) <= 0             then 'unpaid'
-    when coalesce(sum(po.amount), 0) < ot.order_total then 'partial'
+    when abs(coalesce(sum(po.amount), 0)) = 0              then 'unpaid'
+    when abs(coalesce(sum(po.amount), 0)) < abs(ot.order_total) then 'partial'
     else 'paid'
   end as payment_status,
   ot.type
 from order_total_view ot
 left join payment_orders po on po.order_id = ot.order_id
-where ot.type in ('sale', 'purchase')
+where ot.type in ('sale', 'purchase', 'sale_return', 'purchase_return')
   and ot.status = 'confirmed'
 group by
   ot.order_id, ot.partner_id, ot.order_no, ot.order_date, ot.order_total, ot.type;
 
--- 未收清單：用 outstanding_amount > 0 判定，部分收款的單仍留在清單。
--- 只留出貨單：這支是「應收」的定義來源（unpaid_order_view、追款清單都建在它上面），
+-- 未收清單：用 outstanding_amount <> 0 判定，部分收款的單仍留在清單。
+-- 只留出貨單與銷貨退回單：這支是「應收」的定義來源，
 -- 應付混進來會讓供應商被當成要追款的對象。未付進貨單直接查 order_payment_summary_view。
+-- 銷貨退回單的 outstanding 為負（待抵扣額度），所以不能再用 > 0 判斷（patch-030）。
 create view outstanding_order_view as
 select
   s.order_id as id,
@@ -298,10 +359,12 @@ select
   s.outstanding_amount,
   s.payment_status
 from order_payment_summary_view s
-where s.type = 'sale'
-  and s.outstanding_amount > 0;
+where s.type in ('sale', 'sale_return')
+  and s.outstanding_amount <> 0;
 
 -- 相容層：舊前端仍查 unpaid_order_view，欄位名 order_total 對齊舊版。
+-- 刻意只留 > 0：舊前端與追款清單把這支當「客戶還欠多少」，
+-- 待抵扣的退貨（負數）混進來會在不知情的情況下被當成欠款加總（patch-030）。
 create view unpaid_order_view as
 select
   id,
@@ -309,7 +372,8 @@ select
   order_no,
   order_date,
   outstanding_amount as order_total
-from outstanding_order_view;
+from outstanding_order_view
+where outstanding_amount > 0;
 
 -- ----------------------------------------
 -- 單據代表品項：列表用「商品摘要為主、單號為輔」時的商品來源。
@@ -336,6 +400,11 @@ group by oi.order_id;
 -- search_text 併入原單單號（patch-028）：搜原單號就能撈出整組。
 -- 群組欄位只能追加在尾端：create or replace view 不能調整既有欄位順序。
 -- group_size 不計作廢單：作廢的那批貨已經不存在，算進去會讓「共 N 批」對不上實際張數。
+-- patch-030 退貨：total_amount 是自己從 subtotal 算的（不讀 order_total_view，subtotal 恆為正），
+-- 退貨單要自己乘上正負號變負數，search_order_groups 的組合計也靠它；
+-- payment_status 要納入兩種退貨類型，否則列表顯示不出「未抵扣／已抵扣」；
+-- search_text 併入原單單號：搜原單號會一併撈出它的退貨單。
+-- return_* 三欄同樣只能追加在尾端。return_count 不計作廢的退貨單，與 group_size 同理。
 -- ----------------------------------------
 create view order_search_view as
 select
@@ -344,11 +413,11 @@ select
   o.partner_id,
   p.name as partner_name,
   count(oi.id) as item_count,
-  (coalesce(sum(oi.subtotal), 0)
+  (order_amount_sign(o.type) * (coalesce(sum(oi.subtotal), 0)
     - coalesce(o.discount, 0)
-    + coalesce(o.tax, 0))::numeric(12,2) as total_amount,
+    + coalesce(o.tax, 0)))::numeric(12,2) as total_amount,
   case
-    when o.type in ('sale', 'purchase') and o.status = 'confirmed'
+    when o.type in ('sale', 'purchase', 'sale_return', 'purchase_return') and o.status = 'confirmed'
       then coalesce(ops.payment_status, 'unpaid')
     else null
   end as payment_status,
@@ -358,6 +427,7 @@ select
     || ' ' || coalesce(p.name,'') || ' ' || coalesce(p.tax_id,'')
     || ' ' || coalesce(string_agg(pr.name || ' ' || pr.sku, ' '), '')
     || ' ' || coalesce((select r.order_no from orders r where r.id = o.parent_order_id), '')
+    || ' ' || coalesce((select r.order_no from orders r where r.id = o.return_of_order_id), '')
     as search_text,
   ti.top_item_name,
   o.parent_order_id,
@@ -366,7 +436,11 @@ select
   (select count(*) from orders g
     where (g.id = coalesce(o.parent_order_id, o.id)
            or g.parent_order_id = coalesce(o.parent_order_id, o.id))
-      and g.status <> 'void') as group_size
+      and g.status <> 'void') as group_size,
+  o.return_of_order_id,
+  (select r.order_no from orders r where r.id = o.return_of_order_id) as return_of_order_no,
+  (select count(*) from orders r
+    where r.return_of_order_id = o.id and r.status = 'confirmed') as return_count
 from orders o
 left join partners p     on p.id = o.partner_id
 left join order_items oi on oi.order_id = o.id
@@ -381,12 +455,13 @@ group by o.id, p.name, p.tax_id,
 -- 客戶應收餘額（全期間累計；as-of 版本見 get_partner_balances）
 -- balance      = 出貨總額 − 累計收款（負數代表客戶溢付）
 -- unallocated  = 已收但尚未指定沖哪張單的金額
+-- 出貨總額含銷貨退回（order_total 為負），退貨在退貨日那一期直接減掉應收（patch-030）。
 -- ----------------------------------------
 create view partner_balance_view as
 with sales as (
   select partner_id, sum(order_total)::numeric(12,2) as total_sales
   from order_total_view
-  where type = 'sale' and status = 'confirmed'
+  where type in ('sale', 'sale_return') and status = 'confirmed'
   group by partner_id
 ),
 paid as (
@@ -416,7 +491,9 @@ left join allocated al on al.partner_id = p.id
 where p.type = 'customer';
 
 -- ----------------------------------------
--- 對帳單明細（一行 = 一筆出貨明細）
+-- 對帳單明細（一行 = 一筆出貨明細；銷貨退回的明細 qty、subtotal 為負數）
+-- type 追加在尾端（create or replace view 只能追加欄位），供前端標「退貨」。
+-- statement_summary 直接加總 subtotal，帶號之後退貨自然抵掉出貨，不必另外判斷。
 -- ----------------------------------------
 create view statement_line_view as
 select
@@ -426,40 +503,47 @@ select
   o.id as order_id,
   pr.name as product_name,
   pr.spec,
-  abs(oi.qty) as qty,
+  (abs(oi.qty) * order_amount_sign(o.type)) as qty,
   pr.unit,
   oi.unit_price,
-  oi.subtotal
+  (order_amount_sign(o.type) * oi.subtotal)::numeric(12,2) as subtotal,
+  o.type
 from orders o
 join order_items oi on oi.order_id = o.id
 join products pr    on pr.id = oi.product_id
-where o.type = 'sale' and o.status = 'confirmed';
+where o.type in ('sale', 'sale_return') and o.status = 'confirmed';
 
 -- ----------------------------------------
 -- 進出貨明細基底（含成本快照 unit_cost，供報表加總出貨成本）
+-- patch-030：納入退貨單，退貨列的 qty、subtotal、折讓分攤為負數，報表合計自然把退貨扣掉。
+-- 報表以 flow（sale／purchase）篩選而不是 type：銷貨退回屬 sale 這一側、進貨退出屬 purchase。
 -- ----------------------------------------
 create view product_movement_base as
 select
   oi.product_id,
   o.order_date,
   o.type,
-  abs(oi.qty) as qty,
-  oi.subtotal,
+  (abs(oi.qty) * order_amount_sign(o.type)) as qty,
+  (order_amount_sign(o.type) * oi.subtotal)::numeric(12,2) as subtotal,
   oi.unit_cost,
   -- 整單折讓掛在單、不掛在商品，按明細小計比例分攤到本列，毛利才不會因忽略折讓而高估。
   -- 保持全精度不 round：同一單各列分攤和恆等於整單折讓，合計不會因逐列進位而漂移。
   -- 整單小計為 0 卻有折讓的異常單以 nullif 防除零，該情況不分攤。
+  -- 比例必須用未帶號的 oi.subtotal 算，最後才乘單據正負號（patch-030）：若先把 subtotal 帶成
+  -- 負數再套這個式子，分子分母同為負、比例變正，subtotal − alloc 會從應有的 −900 算成 −1100。
   -- 放在最後一欄：create or replace view 只能在尾端追加欄位，插在既有欄位間會報
   -- cannot change name of view column（既有欄的名稱與位置不可變動）。
-  o.discount * oi.subtotal
+  order_amount_sign(o.type) * o.discount * oi.subtotal
     / nullif(sum(oi.subtotal) over (partition by oi.order_id), 0) as order_discount_alloc,
   -- patch-026 追加：客戶毛利要按客戶聚合，並算得出「這客戶期間內出了幾張單」。
   o.partner_id,
-  o.id as order_id
+  o.id as order_id,
+  -- patch-030 追加：進出貨方向。報表篩 flow = 'sale'，銷貨退回自動扣掉出貨，不必各處列舉類型。
+  case when o.type in ('sale', 'sale_return') then 'sale' else 'purchase' end as flow
 from orders o
 join order_items oi on oi.order_id = o.id
 where o.status = 'confirmed'
-  and o.type in ('purchase', 'sale');
+  and o.type in ('purchase', 'sale', 'sale_return', 'purchase_return');
 
 -- ----------------------------------------
 -- 收款搜尋
@@ -589,6 +673,10 @@ end $$;
 -- ----------------------------------------
 
 -- 截至某日的累計進貨加權平均。無已確認進貨時回 null，交呼叫端 fallback。
+-- 計入進貨退出（patch-030）：Σ帶正負號金額 ÷ Σ帶正負號數量，全部退光時分母為 0 回 null。
+-- subtotal 是 abs(qty) 算出的生成欄位、恆為正，正負號必須依單據類型補上。
+-- 退貨價低於原進價時，差額會攤進剩餘庫存的均價：供應商少退的錢就是剩下那些貨的成本，
+-- 這是刻意的，不是 bug。
 create or replace function purchase_avg_cost_asof(
   p_product_id uuid,
   p_as_of date
@@ -597,12 +685,13 @@ language sql
 stable
 security invoker
 as $$
-  select sum(oi.subtotal) / nullif(sum(abs(oi.qty)), 0)
+  select sum(order_amount_sign(o.type) * oi.subtotal)
+         / nullif(sum(order_amount_sign(o.type) * abs(oi.qty)), 0)
   from order_items oi
   join orders o on o.id = oi.order_id
   where oi.product_id = p_product_id
     and o.status = 'confirmed'
-    and o.type = 'purchase'
+    and o.type in ('purchase', 'purchase_return')
     and o.order_date <= p_as_of;
 $$;
 
@@ -771,18 +860,232 @@ begin
 end $$;
 
 -- 作廢單據（草稿與已確認皆可；庫存自動回沖，因 stock_view 只計 confirmed）
+-- patch-030 退貨的兩條限制：
+--   - 原單還有有效（未作廢）的退貨單，不可作廢：否則退貨單會懸在一張不存在的原單上，
+--     可退數量、成本快照與帳務都對不起來。要作廢原單，先作廢它的退貨單。
+--   - 作廢銷貨退回單要檢查庫存：退回的貨可能已經再賣出去，作廢會讓庫存變負數。
+--     進貨退出作廢是把貨加回庫存，不需檢查。
+-- 先 for update 鎖住再檢查，與 create_return_order 鎖同一列而序列化，
+-- 避免「一邊開退貨單、一邊作廢原單」同時成功。
+-- 退貨單已被抵扣的，由 guard_order_total_against_allocations 的 ORDER_HAS_ALLOCATIONS 擋下。
 create or replace function void_order(p_order_id uuid)
 returns void
 language plpgsql
 security invoker
 as $$
+declare
+  v_type   text;
+  v_status text;
+  v_line   record;
+  v_stock  int;
 begin
-  update orders set status = 'void'
-  where id = p_order_id and status in ('draft', 'confirmed');
+  select type, status into v_type, v_status
+  from orders
+  where id = p_order_id
+  for update;
 
-  if not found then
+  if not found or v_status not in ('draft', 'confirmed') then
     raise exception '單據不存在或已作廢，無法作廢';
   end if;
+
+  if exists (
+    select 1 from orders r
+    where r.return_of_order_id = p_order_id and r.status = 'confirmed'
+  ) then
+    raise exception 'ORDER_HAS_RETURNS: 此單據已有退貨單，請先作廢退貨單';
+  end if;
+
+  if v_type = 'sale_return' and v_status = 'confirmed' then
+    for v_line in
+      select oi.product_id, sum(oi.qty)::int as return_qty, p.name
+      from order_items oi
+      join products p on p.id = oi.product_id
+      where oi.order_id = p_order_id
+      group by oi.product_id, p.name
+    loop
+      select coalesce(sum(oi.qty), 0) into v_stock
+      from order_items oi
+      join orders o on o.id = oi.order_id
+      where oi.product_id = v_line.product_id
+        and o.status = 'confirmed';
+
+      -- v_stock 目前仍含這張退貨單的數量，作廢後會少掉 return_qty。
+      if v_stock - v_line.return_qty < 0 then
+        raise exception 'RETURN_STOCK_INSUFFICIENT: %（現有 %，作廢需扣回 %）',
+          v_line.name, v_stock, v_line.return_qty;
+      end if;
+    end loop;
+  end if;
+
+  update orders set status = 'void' where id = p_order_id;
+end $$;
+
+-- 建立退貨單（銷貨退回／進貨退出）：原子建單 + 逐列限額檢查，建立即生效、不開放草稿。
+-- 單據類型由原單決定（sale → sale_return、purchase → purchase_return），呼叫端不傳。
+-- p_items 範例：[{"item_id":"原單明細 uuid","qty":2,"unit_price":100}]，qty 一律傳正數，
+-- 正負號由這裡依類型寫入（銷貨退回 +、進貨退出 −，與庫存流水帳的方向一致）。
+-- for update 鎖住原單：避免兩人同時退同一張而超退，也與 void_order 序列化。
+-- 檢查的「已退數量」只算未作廢的退貨單；本次各列先寫入再檢查下一列，
+-- 所以同一請求裡重複帶同一列也會被累計進去。
+-- 進貨退出檢查的是「目前庫存」而非退貨日當時的庫存，與 create_order 的防超賣一致。
+-- 明細折扣 % 沿用原單、不可改；unit_cost 沿用原單那一列的成本快照，
+-- 毛利才會剛好反向沖回，不因退貨當天均價不同而產生差額。
+-- 整單折讓與稅額各自的歷次有效退貨合計不可超過原單：單價上限只管得住明細，
+-- 多次退貨仍可能把稅額退得比原單還多。
+create or replace function create_return_order(
+  p_original_order_id uuid,
+  p_items             jsonb,
+  p_order_date        date    default current_date,
+  p_discount          numeric default 0,
+  p_tax               numeric default 0,
+  p_note              text    default null
+) returns uuid
+language plpgsql
+security invoker
+as $$
+declare
+  v_orig        orders%rowtype;
+  v_oi          order_items%rowtype;
+  v_item        jsonb;
+  v_return_id   uuid;
+  v_return_type text;
+  v_qty_sign    int;
+  v_qty         int;
+  v_price       numeric;
+  v_returned    int;
+  v_stock       int;
+  v_name        text;
+  v_discount    numeric(12,2) := coalesce(p_discount, 0);
+  v_tax         numeric(12,2) := coalesce(p_tax, 0);
+  v_date        date := coalesce(p_order_date, current_date);
+  v_items_total numeric(12,2);
+  v_disc_sum    numeric(12,2);
+  v_tax_sum     numeric(12,2);
+begin
+  select * into v_orig
+  from orders
+  where id = p_original_order_id
+  for update;
+
+  if not found then
+    raise exception 'ORDER_NOT_FOUND';
+  end if;
+
+  if v_orig.type not in ('sale', 'purchase') or v_orig.status <> 'confirmed' then
+    raise exception '只能對已確認的出貨單或進貨單退貨';
+  end if;
+
+  if v_orig.partner_id is null then
+    raise exception '原單沒有往來對象，無法退貨';
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    raise exception '退貨明細不可為空';
+  end if;
+
+  -- 退貨日早於原單會讓作廢檢查與報表的時間序錯亂。
+  if v_date < v_orig.order_date then
+    raise exception 'RETURN_DATE_INVALID: 退貨日期 % 不可早於原單日期 %', v_date, v_orig.order_date;
+  end if;
+
+  if v_discount < 0 or v_tax < 0 then
+    raise exception '整單折讓與稅額不可為負數';
+  end if;
+
+  if v_orig.type = 'sale' then
+    v_return_type := 'sale_return';
+    v_qty_sign := 1;
+  else
+    v_return_type := 'purchase_return';
+    v_qty_sign := -1;
+  end if;
+
+  insert into orders (order_no, type, status, partner_id, order_date, discount, tax, note, return_of_order_id)
+  values (
+    'RTN-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || substr(md5(random()::text), 1, 4),
+    v_return_type, 'confirmed', v_orig.partner_id, v_date, v_discount, v_tax, p_note, v_orig.id
+  )
+  returning id into v_return_id;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty   := (v_item->>'qty')::int;
+    v_price := (v_item->>'unit_price')::numeric;
+
+    -- item_id 必須屬於這張原單，否則可以拿別張單的明細列來退。
+    select * into v_oi
+    from order_items
+    where id = (v_item->>'item_id')::uuid
+      and order_id = v_orig.id;
+
+    if not found then
+      raise exception '退貨明細不屬於此原單';
+    end if;
+
+    select name into v_name from products where id = v_oi.product_id;
+
+    if v_qty is null or v_qty <= 0 then
+      raise exception '退貨數量必須大於 0';
+    end if;
+
+    select coalesce(sum(abs(ri.qty)), 0)::int into v_returned
+    from order_items ri
+    join orders r on r.id = ri.order_id
+    where ri.return_of_item_id = v_oi.id
+      and r.status = 'confirmed';
+
+    if v_qty > abs(v_oi.qty) - v_returned then
+      raise exception 'RETURN_QTY_EXCEEDS: %（原數量 %，已退 %，本次 %）',
+        v_name, abs(v_oi.qty), v_returned, v_qty;
+    end if;
+
+    if v_price is null or v_price < 0 or v_price > v_oi.unit_price then
+      raise exception 'RETURN_PRICE_EXCEEDS: %（退貨單價須介於 0 與原單價 % 之間）',
+        v_name, v_oi.unit_price;
+    end if;
+
+    if v_return_type = 'purchase_return' then
+      select coalesce(sum(oi.qty), 0) into v_stock
+      from order_items oi
+      join orders o on o.id = oi.order_id
+      where oi.product_id = v_oi.product_id
+        and o.status = 'confirmed';
+
+      if v_stock < v_qty then
+        raise exception 'RETURN_STOCK_INSUFFICIENT: %（現有 %，需退 %）', v_name, v_stock, v_qty;
+      end if;
+    end if;
+
+    insert into order_items (order_id, product_id, qty, unit_price, discount, unit_cost, return_of_item_id)
+    values (v_return_id, v_oi.product_id, v_qty_sign * v_qty, v_price, v_oi.discount, v_oi.unit_cost, v_oi.id);
+  end loop;
+
+  -- 退貨單的 order_total 是負數，淨額（未帶號）必須 >= 0，否則會變成「退貨單反而要收錢」。
+  select coalesce(sum(subtotal), 0)::numeric(12,2) into v_items_total
+  from order_items
+  where order_id = v_return_id;
+
+  if v_items_total - v_discount + v_tax < 0 then
+    raise exception '退貨單淨額不可為負數（折讓 % 大於明細合計 %）', v_discount, v_items_total;
+  end if;
+
+  -- 含本張在內的歷次有效退貨合計。
+  select coalesce(sum(r.discount), 0)::numeric(12,2), coalesce(sum(r.tax), 0)::numeric(12,2)
+    into v_disc_sum, v_tax_sum
+  from orders r
+  where r.return_of_order_id = v_orig.id
+    and r.status = 'confirmed';
+
+  if v_disc_sum > coalesce(v_orig.discount, 0) then
+    raise exception 'RETURN_AMOUNT_EXCEEDS: 整單折讓歷次退貨合計 % 超過原單的 %',
+      v_disc_sum, coalesce(v_orig.discount, 0);
+  end if;
+
+  if v_tax_sum > coalesce(v_orig.tax, 0) then
+    raise exception 'RETURN_AMOUNT_EXCEEDS: 稅額歷次退貨合計 % 超過原單的 %',
+      v_tax_sum, coalesce(v_orig.tax, 0);
+  end if;
+
+  return v_return_id;
 end $$;
 
 -- 編輯草稿單（整張替換 header + 明細）
@@ -998,6 +1301,8 @@ $$;
 --   - 付款狀態：套在組推導後的狀態。篩「未結清」是要找整批還欠多少，
 --     A 已付、B 未付的組是「部分付款」，必須被列入；逐張比對會讓結果與列上顯示的狀態不一致。
 -- 組付款狀態：組內沒有已確認的進出貨單 → null；一毛未付 → unpaid；未付為 0 → paid；其餘 partial。
+-- 比較一律用絕對值（patch-030）：退貨單的已付、未付都是負數，用 <= 0 會讓退貨單永遠「未抵扣」。
+-- 退貨單的 parent_order_id 為 null，自己獨立成一組，不會被併進原單那一組的合計。
 -- total_count 用 window function 在 limit 之前計算，給前端算總頁數。
 -- ----------------------------------------
 create or replace function search_order_groups(
@@ -1070,8 +1375,8 @@ as $$
       g.*,
       case
         when not g.payable              then null
-        when g.paid_amount <= 0         then 'unpaid'
-        when g.outstanding_amount <= 0  then 'paid'
+        when abs(g.paid_amount) = 0         then 'unpaid'
+        when abs(g.outstanding_amount) = 0  then 'paid'
         else 'partial'
       end as payment_status
     from groups g
@@ -1096,6 +1401,11 @@ $$;
 -- 原子儲存收付款 + 逐單分配（取代前端三段式呼叫，任一段失敗都會留下不一致資料）。
 -- 單號一律在 DB 端產生，避免前端併發產生重號。
 -- 對象為客戶即收款、為供應商即付款（patch-027），方向不另傳參數，由對象類型決定。
+-- patch-030：金額允許 0（0 元沖帳單：換貨時退貨剛好抵掉出貨、沒有現金進出），
+-- 但 0 元收款一定要有分配、且淨額為 0，不開放「無分配的 0 元收款」（那只是一筆沒有意義的空紀錄）。
+-- 無分配的情況沒有 payment_orders 列可以觸發 constraint trigger，所以這裡要先擋；
+-- 淨額是否為 0 則在 commit 時由 trigger 依實際分配驗證。
+-- 分配金額改為只擋 0：退貨單的分配是負數。
 create or replace function save_payment_with_allocations(
   p_partner_id   uuid,
   p_payment_date date,
@@ -1117,8 +1427,12 @@ begin
     raise exception 'PAYMENT_PARTNER_REQUIRED';
   end if;
 
-  if p_amount is null or p_amount <= 0 then
+  if p_amount is null or p_amount < 0 then
     raise exception 'PAYMENT_AMOUNT_INVALID';
+  end if;
+
+  if p_amount = 0 and jsonb_array_length(coalesce(p_allocations, '[]'::jsonb)) = 0 then
+    raise exception 'PAYMENT_AMOUNT_INVALID: 0 元收付款必須有分配（以退貨抵扣出貨）';
   end if;
 
   if p_method not in ('cash', 'transfer', 'check') then
@@ -1171,7 +1485,7 @@ begin
       raise exception 'ALLOCATION_ORDER_REQUIRED';
     end if;
 
-    if v_alloc.amount is null or v_alloc.amount <= 0 then
+    if v_alloc.amount is null or v_alloc.amount = 0 then
       raise exception 'ALLOCATION_AMOUNT_INVALID';
     end if;
 
@@ -1180,16 +1494,61 @@ begin
   end loop;
 
   -- 交易 commit 時，constraint trigger 會驗證：
-  --   1. 分配總額 <= 收款金額
-  --   2. 每張單分配總額 <= 單據金額
+  --   1. 0 <= 分配淨額 <= 收款金額（退貨單的分配為負數，淨額 < 0 即 ALLOCATION_NET_NEGATIVE）
+  --   2. 每張單分配總額的絕對值 <= 單據金額的絕對值，且正負號與單據一致
   --   3. 收付款對象 = 單據對象
-  --   4. 只能沖已確認的出貨單／進貨單，且方向相符（客戶沖出貨、供應商沖進貨）
+  --   4. 只能沖已確認的出貨單／進貨單／退貨單，且方向相符（客戶沖出貨與銷貨退回、供應商沖進貨與進貨退出）
+  --   5. 收款金額為 0 時，分配必須非空且淨額恰為 0
   return v_payment_id;
 end $$;
+
+-- 單筆收付款的分配淨額規則（patch-030）：0 <= 淨額 <= 收款金額；收款金額為 0 時，分配必須非空且淨額恰為 0。
+--   - 淨額 < 0 → ALLOCATION_NET_NEGATIVE：退貨抵超過出貨，多出來的負數無處可去。
+--   - 收款金額 > 淨額的差額照既有規則列為預收，不另外擋。
+--   - 0 元收款不開放「無分配」：那只是一筆沒有意義的空紀錄。
+-- 抽成獨立函式，讓 payment_orders 與 payments 兩邊的 constraint trigger 共用同一份規則：
+-- 只掛 payment_orders 的話，直接 PATCH payments.amount 成 0（沒有任何分配列）不會觸發驗證。
+-- 收款可能在同一交易被刪除（例如 on delete cascade），此時無需驗證。
+create or replace function assert_payment_allocation_net(p_payment_id uuid)
+returns void
+language plpgsql
+as $$
+declare
+  v_amount numeric(12,2);
+  v_net    numeric(12,2);
+  v_count  int;
+begin
+  select pay.amount into v_amount from payments pay where pay.id = p_payment_id;
+
+  if not found then
+    return;
+  end if;
+
+  select coalesce(sum(po.amount), 0)::numeric(12,2), count(*)
+    into v_net, v_count
+  from payment_orders po
+  where po.payment_id = p_payment_id;
+
+  if v_amount = 0 and (v_count = 0 or v_net <> 0) then
+    raise exception 'PAYMENT_AMOUNT_INVALID: 0 元收付款的分配必須非空且淨額為 0（目前 % 筆、淨額 %）',
+      v_count, v_net;
+  end if;
+
+  if v_net < 0 then
+    raise exception 'ALLOCATION_NET_NEGATIVE: 分配淨額 % 小於 0，退貨抵扣超過所選出貨／進貨金額', v_net;
+  end if;
+
+  if v_net > v_amount then
+    raise exception 'ALLOCATION_EXCEEDS_PAYMENT: 分配總額 % 超過收款金額 %', v_net, v_amount;
+  end if;
+end;
+$$;
 
 -- 跨列總額驗證（check constraint 不能跨列聚合，只能用 trigger）。
 -- 搭配 constraint trigger + deferrable initially deferred，讓 RPC 能在同一交易內
 -- 「先刪光舊分配、再插入新分配」，到 commit 才驗證，中間暫態不會被誤判。
+-- patch-030：可沖退貨單。分配的正負號與單據金額一致（退貨單為負），
+-- 絕對值不可超過單據金額；單筆收款的淨額規則見 assert_payment_allocation_net。
 create or replace function validate_payment_order_allocations()
 returns trigger
 language plpgsql
@@ -1197,10 +1556,8 @@ as $$
 declare
   v_payment_id        uuid;
   v_order_id          uuid;
-  v_payment_amount    numeric(12,2);
   v_payment_partner   uuid;
   v_partner_type      text;
-  v_payment_allocated numeric(12,2);
   v_order_total       numeric(12,2);
   v_order_partner     uuid;
   v_order_type        text;
@@ -1210,24 +1567,13 @@ begin
   v_payment_id := coalesce(new.payment_id, old.payment_id);
   v_order_id   := coalesce(new.order_id,   old.order_id);
 
-  -- 收款可能在同一交易被刪除（例如 on delete cascade），此時無需驗證
-  select pay.amount, pay.partner_id, pt.type
-    into v_payment_amount, v_payment_partner, v_partner_type
+  perform assert_payment_allocation_net(v_payment_id);
+
+  select pay.partner_id, pt.type
+    into v_payment_partner, v_partner_type
   from payments pay
   left join partners pt on pt.id = pay.partner_id
   where pay.id = v_payment_id;
-
-  if found then
-    select coalesce(sum(amount), 0)::numeric(12,2)
-      into v_payment_allocated
-    from payment_orders
-    where payment_id = v_payment_id;
-
-    if v_payment_allocated > v_payment_amount then
-      raise exception 'ALLOCATION_EXCEEDS_PAYMENT: 分配總額 % 超過收款金額 %',
-        v_payment_allocated, v_payment_amount;
-    end if;
-  end if;
 
   select order_total, partner_id, type, status
     into v_order_total, v_order_partner, v_order_type, v_order_status
@@ -1235,15 +1581,17 @@ begin
   where order_id = v_order_id;
 
   if found then
-    if v_order_type not in ('sale', 'purchase') or v_order_status <> 'confirmed' then
-      raise exception 'ALLOCATION_TARGET_INVALID: 只能沖帳已確認的出貨單或進貨單';
+    if v_order_type not in ('sale', 'purchase', 'sale_return', 'purchase_return')
+       or v_order_status <> 'confirmed' then
+      raise exception 'ALLOCATION_TARGET_INVALID: 只能沖帳已確認的出貨單、進貨單或退貨單';
     end if;
 
     -- 對象一致性只擋得住「單據 partner_id 不同」；單據沒掛對象（partner_id 為 null）時
     -- 會放行，因此方向要另外驗：客戶的收款沖進貨單會讓應付憑空被「收」掉。
+    -- 退貨單跟著原單方向：銷貨退回屬客戶、進貨退出屬供應商。
     if v_partner_type is not null
-       and (v_partner_type = 'customer') <> (v_order_type = 'sale') then
-      raise exception 'ALLOCATION_DIRECTION_MISMATCH: 客戶只能沖出貨單、供應商只能沖進貨單';
+       and (v_partner_type = 'customer') <> (v_order_type in ('sale', 'sale_return')) then
+      raise exception 'ALLOCATION_DIRECTION_MISMATCH: 客戶只能沖出貨單與銷貨退回、供應商只能沖進貨單與進貨退出';
     end if;
 
     select coalesce(sum(amount), 0)::numeric(12,2)
@@ -1251,9 +1599,20 @@ begin
     from payment_orders
     where order_id = v_order_id;
 
-    if v_order_allocated > v_order_total then
+    if abs(v_order_allocated) > abs(v_order_total) then
       raise exception 'ALLOCATION_EXCEEDS_ORDER: 單據分配總額 % 超過單據金額 %',
         v_order_allocated, v_order_total;
+    end if;
+
+    -- 分配方向要與單據一致：出貨單的分配為正、退貨單為負。
+    -- 否則在出貨單上放負的分配，淨額規則會被繞過去（用負數把別張單的分配「抵」回來）。
+    if exists (
+      select 1 from payment_orders
+      where order_id = v_order_id
+        and sign(amount) <> sign(v_order_total)
+    ) then
+      raise exception 'ALLOCATION_AMOUNT_INVALID: 分配金額的正負號必須與單據金額一致（單據金額 %）',
+        v_order_total;
     end if;
 
     if v_payment_partner is not null
@@ -1267,7 +1626,21 @@ begin
 end;
 $$;
 
+-- payments 端的 constraint trigger：只為補 payment_orders trigger 觸發不到的路徑
+-- （改 payments.amount、0 元收款完全沒有分配列），規則同 assert_payment_allocation_net。
+create or replace function validate_payment_amount()
+returns trigger
+language plpgsql
+as $$
+begin
+  perform assert_payment_allocation_net(new.id);
+  return null;
+end;
+$$;
+
 -- 保護既有單據不被改成低於已收金額（以 trigger 兜底 update_order_meta 之外的路徑）。
+-- patch-030：金額比較改用絕對值。退貨單的已沖金額是負數，單據金額這裡自己從 subtotal 算、
+-- 未帶號（恆為正），兩邊各取絕對值才是「金額是否小於已沖」的同一個比較。
 create or replace function guard_order_total_against_allocations()
 returns trigger
 language plpgsql
@@ -1301,9 +1674,9 @@ begin
                    - coalesce(new.discount, 0)
                    + coalesce(new.tax, 0))::numeric(12,2);
 
-  if v_new_total < v_allocated then
+  if abs(v_new_total) < abs(v_allocated) then
     raise exception 'ORDER_TOTAL_BELOW_ALLOCATED: 單據金額 % 低於已收款 %',
-      v_new_total, v_allocated;
+      abs(v_new_total), abs(v_allocated);
   end if;
 
   return new;
@@ -1333,18 +1706,20 @@ security invoker
 as $$
   select
     m.product_id,
-    coalesce(sum(m.qty)      filter (where m.type = 'purchase'), 0),
+    coalesce(sum(m.qty)      filter (where m.flow = 'purchase'), 0),
     -- 進/出貨金額扣掉分攤到本列的整單折讓（未稅、含折讓）；數量與成本快照不受折讓影響。
-    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0),
-    coalesce(sum(m.qty)      filter (where m.type = 'sale'), 0),
-    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0),
-    coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0)
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'purchase'), 0),
+    coalesce(sum(m.qty)      filter (where m.flow = 'sale'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'sale'), 0),
+    coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.flow = 'sale'), 0)
   from product_movement_base m
   where m.order_date between p_from and p_to
   group by m.product_id;
 $$;
 
 -- 期間損益彙總（含稅檢視用；總覽卡片已改走 product_cost_analysis_summary 的全未稅口徑）
+-- patch-030：revenue／expense 計入退貨單（負數）。order_totals 是自己從 subtotal 算、
+-- 不讀 order_total_view，而 subtotal 恆為正，所以正負號要在這裡另外乘上，不會自動帶進來。
 -- 收益／支出 = 明細小計 − 整單折讓 + 稅額（含稅，收付視角）；
 -- 成本 = Σ 各商品出貨成本快照；
 -- 毛利 = 未稅銷貨淨額（含折讓）− 成本。稅是代收代付、不是收入，故毛利一律未稅，
@@ -1368,11 +1743,11 @@ as $$
     select
       o.id,
       o.type,
-      coalesce(sum(oi.subtotal), 0) - o.discount + o.tax as net_amount
+      order_amount_sign(o.type) * (coalesce(sum(oi.subtotal), 0) - o.discount + o.tax) as net_amount
     from orders o
     left join order_items oi on oi.order_id = o.id
     where o.status = 'confirmed'
-      and o.type in ('purchase', 'sale')
+      and o.type in ('purchase', 'sale', 'sale_return', 'purchase_return')
       and o.order_date between p_from and p_to
     group by o.id
   ),
@@ -1384,8 +1759,8 @@ as $$
     from product_movement(p_from, p_to)
   )
   select
-    coalesce(sum(net_amount) filter (where type = 'sale'), 0),
-    coalesce(sum(net_amount) filter (where type = 'purchase'), 0),
+    coalesce(sum(net_amount) filter (where type in ('sale', 'sale_return')), 0),
+    coalesce(sum(net_amount) filter (where type in ('purchase', 'purchase_return')), 0),
     (select cost from movement),
     (select sale_net - cost from movement)
   from order_totals;
@@ -1452,7 +1827,8 @@ $$;
 
 -- 單一商品的期間彙總（供商品頁毛利與「平均出貨成本」卡）
 -- 改由 product_movement_base 取數，與總覽的成本分析同口徑：金額含整單折讓、未稅。
--- cost = Σ(出貨明細 unit_cost × abs(qty))，成本快照不受折讓影響。調整單本就不在該 view。
+-- cost = Σ(出貨明細 unit_cost × qty)，成本快照不受折讓影響。調整單本就不在該 view。
+-- patch-030：qty 在 view 內已帶號，銷貨退回沿用原出貨列的 unit_cost，成本因此剛好反向沖回。
 create or replace function product_cost_detail_summary(
   p_product_id uuid,
   p_from date default null,
@@ -1469,11 +1845,11 @@ stable
 security invoker
 as $$
   select
-    coalesce(sum(m.qty) filter (where m.type = 'purchase'), 0),
-    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0),
-    coalesce(sum(m.qty) filter (where m.type = 'sale'), 0),
-    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0),
-    coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0)
+    coalesce(sum(m.qty) filter (where m.flow = 'purchase'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'purchase'), 0),
+    coalesce(sum(m.qty) filter (where m.flow = 'sale'), 0),
+    coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'sale'), 0),
+    coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.flow = 'sale'), 0)
   from product_movement_base m
   where m.product_id = p_product_id
     and (p_from is null or m.order_date >= p_from)
@@ -1482,6 +1858,7 @@ $$;
 
 -- 單一商品的期間進出明細（供前端分頁）
 -- 這裡「不」過濾 type：調整單也要顯示，讓使用者看得到庫存被校正過。
+-- qty 本就帶號（退貨單依類型寫入）；subtotal 恆為正，退貨列改輸出負數，與 product_movement_base 同口徑。
 -- item_id 一定要輸出：翻頁時當最後的決勝鍵，避免同日多筆順序不定造成重複或漏列。
 create or replace function product_cost_movements(
   p_product_id uuid,
@@ -1505,7 +1882,7 @@ as $$
     o.order_date,
     o.type,
     oi.qty,
-    oi.subtotal
+    (order_amount_sign(o.type) * oi.subtotal)::numeric(12,2)
   from order_items oi
   join orders o on o.id = oi.order_id
   where oi.product_id = p_product_id
@@ -1519,6 +1896,7 @@ $$;
 -- 口徑選「期末快照」而非「期間發生額」：積欠但近期沒下單的客戶餘額才不會顯示 0。
 -- 三個 CTE 的截止日必須一致，只截其中一側會讓 unallocated_credit 變負數。
 -- p_partner_id / p_keyword 凌駕 p_include_settled：明確指定就必須看得到，即使已結清。
+-- patch-030：總額納入退貨單（帶負號），退貨在退貨日那一期直接減掉應收／應付。
 -- p_partner_type（patch-027）：'supplier' 時改算進貨單與付款＝應付。回傳欄位名稱沿用
 -- total_sales（此時代表進貨總額）、total_paid（已付）不改名，既有呼叫端才不必跟著改。
 -- 加參數必須先 drop：create or replace 會留下舊的 4 參數版成為重載，具名呼叫時 ambiguous。
@@ -1562,7 +1940,9 @@ as $$
   sales as (
     select ot.partner_id, sum(ot.order_total)::numeric(12,2) as total_sales
     from order_total_view ot
-    where ot.type = case when p_partner_type = 'supplier' then 'purchase' else 'sale' end
+    where ot.type = any (case when p_partner_type = 'supplier'
+                              then array['purchase', 'purchase_return']
+                              else array['sale', 'sale_return'] end)
       and ot.status = 'confirmed'
       and (p_as_of is null or ot.order_date <= p_as_of)
     group by ot.partner_id
@@ -1632,9 +2012,9 @@ as $$
     select
       date_trunc('month', m.order_date)::date as month,
       -- 與 product_movement 同口徑：金額扣掉分攤的整單折讓（未稅、含折讓）。
-      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'purchase'), 0) as purchase_amount,
-      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.type = 'sale'), 0)     as sale_amount,
-      coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.type = 'sale'), 0) as cost
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'purchase'), 0) as purchase_amount,
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0)) filter (where m.flow = 'sale'), 0)     as sale_amount,
+      coalesce(sum(coalesce(m.unit_cost, 0) * m.qty) filter (where m.flow = 'sale'), 0) as cost
     from product_movement_base m
     where m.order_date between p_from and p_to
     group by date_trunc('month', m.order_date)
@@ -1690,7 +2070,10 @@ $$;
 -- ----------------------------------------
 
 -- 逐客戶毛利（一客戶一列；排序與分頁交給前端，同 product_cost_analysis）
--- 只回期間內有出貨的客戶：沒出貨就沒有毛利可談，列出來只是一堆 0。
+-- 只回期間內有出貨或退貨的客戶：沒出貨也沒退貨就沒有毛利可談，列出來只是一堆 0。
+-- patch-030：銷貨退回（flow = 'sale'）以負數併入收益與成本，毛利剛好反向沖回；
+-- 只有退貨、沒有出貨的客戶會以負毛利出現在清單——保留，因為那就是該期的真實毛利。
+-- order_count、last_sale_date 仍只算 type = 'sale'，否則「最後出貨日」會變成退貨日。
 -- p_partner_id 指定時只回那一位客戶——modal 要「單一客戶 × 自訂區間」的彙總，
 -- 走這裡才與清單同一套算式，不必在前端另湊一份數字（同 get_partner_balances 的做法）。
 create or replace function partner_profit(
@@ -1730,11 +2113,11 @@ as $$
       m.partner_id,
       sum(m.subtotal - coalesce(m.order_discount_alloc, 0))::numeric(12,2) as sale_amount,
       sum(coalesce(m.unit_cost, 0) * m.qty)::numeric(12,2)                 as cost,
-      count(distinct m.order_id)                                           as order_count,
-      max(m.order_date)                                                    as last_sale_date,
+      count(distinct m.order_id) filter (where m.type = 'sale')            as order_count,
+      max(m.order_date)          filter (where m.type = 'sale')            as last_sale_date,
       coalesce(sum(m.qty) filter (where m.unit_cost is null), 0)           as no_cost_qty
     from product_movement_base m
-    where m.type = 'sale'
+    where m.flow = 'sale'
       and m.partner_id is not null
       and (p_partner_id is null or m.partner_id = p_partner_id)
       and (p_from is null or m.order_date >= p_from)
@@ -1852,7 +2235,7 @@ as $$
       - sum(coalesce(m.unit_cost, 0) * m.qty))::numeric(12,2)
   from product_movement_base m
   join products pr on pr.id = m.product_id
-  where m.type = 'sale'
+  where m.flow = 'sale'
     and m.partner_id = p_partner_id
     and (p_from is null or m.order_date >= p_from)
     and (p_to   is null or m.order_date <= p_to)
@@ -1962,6 +2345,14 @@ create constraint trigger payment_orders_validate_allocations
   deferrable initially deferred
   for each row
   execute function validate_payment_order_allocations();
+
+-- 同樣 deferred：RPC 先寫 payments 再寫 payment_orders，commit 才驗證。
+drop trigger if exists payments_validate_amount on payments;
+create constraint trigger payments_validate_amount
+  after insert or update of amount on payments
+  deferrable initially deferred
+  for each row
+  execute function validate_payment_amount();
 
 drop trigger if exists orders_guard_allocations on orders;
 create trigger orders_guard_allocations
