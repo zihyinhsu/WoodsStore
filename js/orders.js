@@ -2,7 +2,7 @@ import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection, RETURN_TYPE_BADGES } from './ui.js';
 import { requireAuth } from './auth.js';
 import { canReturn, openReturnModal, setupOrderReturn } from './order-return.js';
-import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, totalPages, escapeHtml, itemSummary, round2, sum, groupBy, negativeClass } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -333,7 +333,7 @@ function renderOrderRow(order) {
       </td>
       <td><div class="cell-flex">${TYPE_BADGES[order.type]} ${STATUS_BADGES[order.status]}</div></td>
       <td>${escapeHtml(order.partner_name || '-')}</td>
-      <td class="${Number(order.total_amount) < 0 ? 'text-danger' : ''}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
+      <td class="${negativeClass(order.total_amount)}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(order.total_amount)}</td>
       <td>${hasPaymentStatus(order) ? paymentLink(order) : '-'}</td>
       <td><div class="cell-flex cell-actions">${orderActionButtons(order)}</div></td>
     </tr>

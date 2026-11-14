@@ -7,7 +7,7 @@
 // 這裡送的 qty 一律是正數，不要在前端幫忙變號。
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce } from './ui.js';
-import { formatCurrency, formatDate, toDateInputValue, escapeHtml, round2, sum } from './utils.js';
+import { formatCurrency, formatDate, toDateInputValue, escapeHtml, round2, sum, clamp, negativeClass } from './utils.js';
 
 const TITLES = { sale: '銷貨退回', purchase: '進貨退出' };
 const HINTS = {
@@ -25,25 +25,27 @@ export function canReturn(order) {
   return order.status === 'confirmed' && (order.type === 'sale' || order.type === 'purchase');
 }
 
-// 前端先夾住範圍只是讓使用者不必等 DB 退件；真正的上限仍以 create_return_order 為準。
-const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
 // 讀取每一列目前的輸入，數量與單價夾在合法範圍內，並同時回報輸入是否超出範圍。
+// 前端先夾住範圍只是讓使用者不必等 DB 退件；真正的上限仍以 create_return_order 為準。
+// 不能用 parseInt／parseFloat(...) || 0：數量打 2.5 會被默默截成 2、單價清空會變成 0 元退貨，
+// 兩者都等於輸入值，不會被標成 rt-invalid，使用者看到的和實際送出的就對不上。
 function readLines() {
   return [...el('return-lines').querySelectorAll('tbody tr')].map((tr, index) => {
     const { item, returnable } = current.lines[index];
     const maxPrice = Number(item.unit_price);
-    const rawQty = parseInt(tr.querySelector('.rt-qty').value, 10) || 0;
-    const rawPrice = parseFloat(tr.querySelector('.rt-price').value) || 0;
-    const qty = clamp(rawQty, 0, returnable);
-    const price = round2(clamp(rawPrice, 0, maxPrice));
+    const rawQty = Number(tr.querySelector('.rt-qty').value) || 0;
+    const priceText = tr.querySelector('.rt-price').value.trim();
+    const rawPrice = priceText === '' ? NaN : Number(priceText);
+    const qty = clamp(Math.trunc(rawQty), 0, returnable);
+    // 單價清空時改回原單單價，而不是 0：0 元退貨是少數情況，應該由使用者明確輸入 0。
+    const price = Number.isFinite(rawPrice) ? round2(clamp(rawPrice, 0, maxPrice)) : maxPrice;
     // 明細折扣 % 沿用原單、不可改（DB 同樣不接受），所以這裡直接讀原單那一列。
     const factor = 1 - (Number(item.discount) || 0) / 100;
 
     return {
       tr, item, qty, price,
       qtyInvalid: rawQty !== qty,
-      priceInvalid: round2(rawPrice) !== price,
+      priceInvalid: !Number.isFinite(rawPrice) || round2(rawPrice) !== price,
       subtotal: round2(qty * price * factor),
       // 以原價計的金額：預帶折讓／稅額的比例用它，原因見 prefillAmounts
       atOriginalPrice: qty * maxPrice * factor
@@ -91,7 +93,7 @@ function render() {
 
   const totalEl = el('return-total');
   totalEl.textContent = formatCurrency(total);
-  totalEl.classList.toggle('text-danger', total < 0);
+  totalEl.className = `total-display ${negativeClass(total)}`;
 }
 
 // 輸入中不夾值（打「15」會先經過「1」），離開欄位時才把超出範圍的值改回合法值。
@@ -136,7 +138,8 @@ export async function openReturnModal(order) {
         .select('return_of_item_id, qty, orders!inner(status, return_of_order_id)')
         .eq('orders.return_of_order_id', order.id)
         .neq('orders.status', 'void'),
-      sb.from('order_search_view')
+      // 直接查 orders：order_search_view 為了搜尋 join 了明細、往來對象與收付款彙總，只要兩個欄位不值得。
+      sb.from('orders')
         .select('id, discount, tax')
         .eq('return_of_order_id', order.id)
         .neq('status', 'void')

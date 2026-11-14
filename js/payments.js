@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary, negativeClass, toDeduction } from './utils.js';
 
 let currentPage = 1;
 let totalCount = 0;
@@ -54,9 +54,6 @@ function methodLabel(payment) {
   if (Number(payment.amount) === 0) return '沖帳';
   return methodMap[payment.method] || escapeHtml(payment.method);
 }
-
-// 退貨單的金額為負：紅字讓使用者一眼看出這張是「抵掉」而不是「要收」。
-const negativeClass = amount => (Number(amount) < 0 ? 'text-danger' : '');
 
 // 收款與付款共用同一套表與沖帳機制（patch-027），差別只在往來對象與用語：
 // 對象是客戶就是收款、沖出貨單；是供應商就是付款、沖進貨單。
@@ -737,13 +734,16 @@ function renderOrderItems(items, isReturn = false) {
         </tr>
       </thead>
       <tbody>
-        ${items.map(item => `
+        ${items.map(item => {
+          const subtotal = isReturn ? toDeduction(item.subtotal) : item.subtotal;
+          return `
           <tr>
             <td>${escapeHtml(item.products?.name ?? '')} <span class="text-muted">(${escapeHtml(item.products?.sku ?? '')})</span></td>
             <td>${Math.abs(item.qty)} ${escapeHtml(item.products?.unit ?? '')}</td>
             <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(item.unit_price)}</td>
-            <td class="${isReturn ? 'text-danger' : ''}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(isReturn ? -item.subtotal : item.subtotal)}</td>
-          </tr>`).join('')}
+            <td class="${negativeClass(subtotal)}" style="font-family: 'Roboto', sans-serif;">${formatCurrency(subtotal)}</td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }

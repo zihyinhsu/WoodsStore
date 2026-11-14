@@ -2,7 +2,7 @@
 //
 // 這裡只放會操作 DOM 或瀏覽器狀態的共用元件。
 // 純函式（格式化、日期換算、數值處理）請放 utils.js。
-import { totalPages, escapeHtml } from './utils.js';
+import { totalPages, escapeHtml, clamp } from './utils.js';
 import { sb } from './supabase.js';
 
 // 各頁分頁列的樣板完全一致，只差資料筆數的單位文案，
@@ -135,7 +135,9 @@ export function toErrorMessage(error) {
   }
   if (raw.includes('RETURN_PRICE_EXCEEDS')) return '退貨單價不可高於原單單價。';
   if (raw.includes('RETURN_STOCK_INSUFFICIENT')) {
-    return '目前庫存不足，無法退回這批進貨（貨可能已經賣出）。';
+    // create_return_order（進貨退出）與 void_order（作廢銷貨退回）共用這個代碼，
+    // 兩者都是「要從庫存扣回，但貨已經賣出」，訊息不能只講其中一種。
+    return '目前庫存不足，無法扣回這批商品（貨可能已經賣出）。進貨退出請減少退貨數量；作廢銷貨退回請先補足庫存。';
   }
   if (raw.includes('RETURN_DATE_INVALID')) return '退貨日期不可早於原單日期。';
   if (raw.includes('RETURN_AMOUNT_EXCEEDS')) {
@@ -611,8 +613,8 @@ function chooseSelectOption(index) {
 // 面板用 fixed 定位貼在觸發鈕下方；下方空間不夠就往上開
 function positionSelectPanel() {
   const rect = openSelect.trigger.getBoundingClientRect();
-  const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 16);
-  const left = Math.min(Math.max(rect.left, 8), window.innerWidth - width - 8);
+  const width = clamp(rect.width, 240, window.innerWidth - 16);
+  const left = clamp(rect.left, 8, window.innerWidth - width - 8);
   const spaceBelow = window.innerHeight - rect.bottom;
   const openUp = spaceBelow < 280 && rect.top > spaceBelow;
 

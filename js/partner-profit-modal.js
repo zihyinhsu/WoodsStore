@@ -6,7 +6,7 @@
 // 側邊欄登出鈕也是這樣處理的（ui.js 的 renderAuthControls）。
 // ============================================================
 import { openModal, renderPagination, showToast, toErrorMessage } from './ui.js';
-import { formatCurrency, escapeHtml, dateRange, totalPages } from './utils.js';
+import { formatCurrency, escapeHtml, dateRange, totalPages, clamp } from './utils.js';
 import {
   PROFIT_PAGE_SIZE,
   fetchPartnerProfitDetail,
@@ -98,7 +98,7 @@ function ensureModal() {
     if (!partnerId) return;
 
     const lastPage = totalPages(total, PROFIT_PAGE_SIZE);
-    const next = Math.min(Math.max(page + delta, 1), lastPage);
+    const next = clamp(page + delta, 1, lastPage);
     if (next === page) return;
 
     page = next;

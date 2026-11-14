@@ -113,9 +113,12 @@ function installMocks(page, state) {
     }
 
     if (req.method() === 'GET') {
+      // 退貨視窗查歷次退貨的折讓／稅額：直接查 orders，不走 order_search_view
+      if (name === 'orders' && (q.get('return_of_order_id') || '').startsWith('eq.')) {
+        return ok(state.returnOrders, state.returnOrders.length);
+      }
       if (name === 'order_search_view') {
         state.searches.push(url.search);
-        if ((q.get('return_of_order_id') || '').startsWith('eq.')) return ok(state.returnOrders, state.returnOrders.length);
         const ids = idsOf('id');
         if (ids.length) return ok(state.orders.filter(o => ids.includes(o.id)));
         return ok(state.orders, state.orders.length);
@@ -326,6 +329,12 @@ async function setLine(page, itemId, { qty, price }) {
   // 單價超過原價：夾回原價
   await setLine(page, 'i-1', { price: 150 });
   r.check('單價超過原價夾回 100', await lineRow(page, 'i-1').locator('.rt-price').inputValue(), '100');
+  // 小數數量不可被默默截掉：要改回整數讓使用者看見
+  await setLine(page, 'i-1', { qty: 2.5 });
+  r.check('小數數量改回整數', await lineRow(page, 'i-1').locator('.rt-qty').inputValue(), '2');
+  // 清空單價不可變成 0 元退貨：改回原價
+  await setLine(page, 'i-1', { qty: 3, price: '' });
+  r.check('清空單價改回原價', await lineRow(page, 'i-1').locator('.rt-price').inputValue(), '100');
   // 單價可往下改，小計跟著變（含明細折扣的第二列：2 × 350 × 0.9 = 630）
   await setLine(page, 'i-2', { qty: 2, price: 350 });
   r.check('第二列小計含明細折扣', await textOf(lineRow(page, 'i-2').locator('.rt-subtotal')), '$630');
@@ -333,6 +342,12 @@ async function setLine(page, itemId, { qty, price }) {
   await page.fill('#return-discount', '0');
   await setLine(page, 'i-1', { qty: 4 });
   r.check('手改折讓後不被預帶蓋掉', await page.inputValue('#return-discount'), '0');
+  // 折讓大於小計時合計為負，要真的顯示成紅字（以前被 inline style 的主色蓋掉）
+  const totalColor = () => page.locator('#return-total').evaluate(e => getComputedStyle(e).color);
+  r.check('合計為正時是主色', await totalColor(), 'rgb(192, 83, 31)');
+  await page.fill('#return-discount', '99999');
+  r.check('合計為負時是紅字', await totalColor(), 'rgb(197, 48, 48)');
+  await page.fill('#return-discount', '0');
 
   // 退貨日期早於原單：不送出
   await page.fill('#return-date', '2026-10-01');

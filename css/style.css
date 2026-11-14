@@ -946,6 +946,16 @@ tbody tr.clickable-row {
   font-size: 2.25rem;
 }
 
+/* 開單／退貨 modal 右下的合計。同理要宣告在 Utilities 之前，負數時 .text-danger 才蓋得過主色；
+   以前寫成 inline style，權重高於任何 class，退貨合計變紅字從來沒生效過。 */
+.total-display {
+  font-size: 2rem;
+  font-weight: bold;
+  color: var(--primary);
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 1px;
+}
+
 .stat-label {
   color: var(--text-muted);
   font-weight: 600;

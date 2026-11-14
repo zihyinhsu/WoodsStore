@@ -30,7 +30,7 @@
 先看這份清單，再決定要不要新增：
 
 `PAGE_SIZE`、`formatCurrency`、`formatAmount`、`formatDate`、`toDateInputValue`、`dateRange`、`debounce`、
-`escapeHtml`、`round2`、`toDeduction`、`sum`、`groupBy`、`totalPages`
+`escapeHtml`、`itemSummary`、`orderSearchLink`、`round2`、`toDeduction`、`negativeClass`、`clamp`、`sum`、`groupBy`、`totalPages`
 
 ## 二、日期：禁用 `toISOString()` 取日期字串
 

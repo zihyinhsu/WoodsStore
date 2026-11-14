@@ -147,6 +147,16 @@ export function toDeduction(value) {
   return amount === 0 ? 0 : -amount;
 }
 
+// 負數金額（退貨單、退貨抵扣）一律紅字。集中在這裡是因為收付款、單據列表、退貨視窗
+// 原本各寫一份判斷，改一邊漏另一邊就會出現同一筆金額在不同頁顏色不一致。
+export function negativeClass(amount) {
+  return Number(amount) < 0 ? 'text-danger' : '';
+}
+
+export function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
 export function sum(rows, field) {
   return rows.reduce((total, row) => total + Number(row[field] || 0), 0);
 }

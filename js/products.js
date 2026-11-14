@@ -1,7 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, RETURN_TYPE_BADGES } from './ui.js';
 import { requireAuth } from './auth.js';
-import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink, round2, toDeduction } from './utils.js';
+import { PAGE_SIZE, formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, toDateInputValue, orderSearchLink, round2, toDeduction, clamp } from './utils.js';
 import { MOVEMENT_PAGE_SIZE, fetchProductCostSummary, fetchProductMovementPage } from './inventory-cost.js';
 
 let currentProducts = [];
@@ -216,7 +216,7 @@ function setupCostModalControls() {
     if (!costModalProductId) return;
 
     const lastPage = totalPages(costMovementTotal, MOVEMENT_PAGE_SIZE);
-    const nextPage = Math.min(Math.max(costMovementPage + delta, 1), lastPage);
+    const nextPage = clamp(costMovementPage + delta, 1, lastPage);
     if (nextPage === costMovementPage) return;
 
     costMovementPage = nextPage;
