@@ -490,6 +490,12 @@ function openAdjustModal(productId) {
   openModal('adjust-modal');
 }
 
+// 盤點數量可帶小數（坪數，patch-031）。差額要 round2：5.04 − 1.2 在浮點數會是 3.8400000000000003，
+// 直接送出會被 DB 收斂，但提示文字與「數量未變動」的判斷就會跟著錯。
+function adjustDiff(raw) {
+  return round2(round2(raw) - adjustCurrentStock);
+}
+
 function updateAdjustDiff() {
   const hint = document.getElementById('adjust-diff-hint');
   const raw = document.getElementById('adjust-count').value;
@@ -500,8 +506,8 @@ function updateAdjustDiff() {
     return;
   }
 
-  const diff = (parseInt(raw) || 0) - adjustCurrentStock;
-  const after = adjustCurrentStock + diff;
+  const diff = adjustDiff(raw);
+  const after = round2(adjustCurrentStock + diff);
   if (diff === 0) {
     hint.textContent = `數量未變動（${adjustCurrentStock} ${adjustUnit}）`;
   } else {
@@ -518,7 +524,7 @@ async function saveAdjustment() {
     return;
   }
 
-  const diff = (parseInt(document.getElementById('adjust-count').value) || 0) - adjustCurrentStock;
+  const diff = adjustDiff(document.getElementById('adjust-count').value);
   if (diff === 0) {
     const hint = document.getElementById('adjust-diff-hint');
     hint.textContent = '數量未變動，無需調整';

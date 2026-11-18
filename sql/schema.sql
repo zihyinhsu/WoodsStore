@@ -129,7 +129,8 @@ create table order_items (
   id          uuid primary key default gen_random_uuid(),
   order_id    uuid not null references orders(id) on delete cascade,
   product_id  uuid not null references products(id),
-  qty         int not null,                        -- 進貨／銷貨退回為正、銷貨／進貨退出為負（由 RPC 控制）
+  -- numeric 而非 int：坪、尺這類單位要記 5.04 坪（patch-031）；兩位小數與 unit_price 同精度。
+  qty         numeric(12,2) not null,              -- 進貨／銷貨退回為正、銷貨／進貨退出為負（由 RPC 控制）
   unit_price  numeric(12,2) not null default 0,
   discount    numeric(5,2) default 0,              -- 明細折扣（%）
   subtotal    numeric(12,2)
@@ -750,8 +751,8 @@ declare
   v_order_id uuid;
   v_item jsonb;
   v_sign int := case when p_type = 'purchase' then 1 else -1 end;
-  v_stock int;
-  v_qty int;
+  v_stock numeric;
+  v_qty numeric;
 begin
   if p_type not in ('purchase','sale','adjust') then
     raise exception '無效的單據類型: %', p_type;
@@ -773,7 +774,7 @@ begin
   returning id into v_order_id;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
-    v_qty := (v_item->>'qty')::int;
+    v_qty := round((v_item->>'qty')::numeric, 2);
 
     if p_type = 'adjust' then
       -- 調整單：qty 可正可負，直接採用
@@ -823,7 +824,7 @@ as $$
 declare
   v_type text;
   v_item record;
-  v_stock int;
+  v_stock numeric;
 begin
   select type into v_type from orders
   where id = p_order_id and status = 'draft'
@@ -877,7 +878,7 @@ declare
   v_type   text;
   v_status text;
   v_line   record;
-  v_stock  int;
+  v_stock  numeric;
 begin
   select type, status into v_type, v_status
   from orders
@@ -897,7 +898,7 @@ begin
 
   if v_type = 'sale_return' and v_status = 'confirmed' then
     for v_line in
-      select oi.product_id, sum(oi.qty)::int as return_qty, p.name
+      select oi.product_id, sum(oi.qty) as return_qty, p.name
       from order_items oi
       join products p on p.id = oi.product_id
       where oi.order_id = p_order_id
@@ -950,10 +951,10 @@ declare
   v_return_id   uuid;
   v_return_type text;
   v_qty_sign    int;
-  v_qty         int;
+  v_qty         numeric;
   v_price       numeric;
-  v_returned    int;
-  v_stock       int;
+  v_returned    numeric;
+  v_stock       numeric;
   v_name        text;
   v_discount    numeric(12,2) := coalesce(p_discount, 0);
   v_tax         numeric(12,2) := coalesce(p_tax, 0);
@@ -1008,7 +1009,7 @@ begin
   returning id into v_return_id;
 
   for v_item in select * from jsonb_array_elements(p_items) loop
-    v_qty   := (v_item->>'qty')::int;
+    v_qty   := round((v_item->>'qty')::numeric, 2);
     v_price := (v_item->>'unit_price')::numeric;
 
     -- item_id 必須屬於這張原單，否則可以拿別張單的明細列來退。
@@ -1027,7 +1028,7 @@ begin
       raise exception '退貨數量必須大於 0';
     end if;
 
-    select coalesce(sum(abs(ri.qty)), 0)::int into v_returned
+    select coalesce(sum(abs(ri.qty)), 0) into v_returned
     from order_items ri
     join orders r on r.id = ri.order_id
     where ri.return_of_item_id = v_oi.id
@@ -1107,7 +1108,7 @@ declare
   v_type text;
   v_status text;
   v_item jsonb;
-  v_qty int;
+  v_qty numeric;
   v_unit_price numeric;
   v_product uuid;
 begin
@@ -1139,7 +1140,7 @@ begin
 
   for v_item in select * from jsonb_array_elements(p_items) loop
     v_product    := (v_item->>'product_id')::uuid;
-    v_qty        := (v_item->>'qty')::int;
+    v_qty        := round((v_item->>'qty')::numeric, 2);
     v_unit_price := (v_item->>'unit_price')::numeric;
 
     if v_product is null then
@@ -1694,9 +1695,9 @@ create or replace function product_movement(
   p_to date
 ) returns table (
   product_id uuid,
-  purchase_qty bigint,
+  purchase_qty numeric,
   purchase_amount numeric,
-  sale_qty bigint,
+  sale_qty numeric,
   sale_amount numeric,
   cost numeric
 )
@@ -1777,9 +1778,9 @@ create or replace function product_cost_analysis(
   sku text,
   name text,
   unit text,
-  purchase_qty bigint,
+  purchase_qty numeric,
   purchase_amount numeric,
-  sale_qty bigint,
+  sale_qty numeric,
   sale_amount numeric,
   estimated_cost numeric,
   estimated_profit numeric
@@ -1834,9 +1835,9 @@ create or replace function product_cost_detail_summary(
   p_from date default null,
   p_to date default null
 ) returns table (
-  purchase_qty bigint,
+  purchase_qty numeric,
   purchase_amount numeric,
-  sale_qty bigint,
+  sale_qty numeric,
   sale_amount numeric,
   cost numeric
 )
@@ -1869,7 +1870,7 @@ create or replace function product_cost_movements(
   order_no text,
   order_date date,
   type text,
-  qty int,
+  qty numeric,
   subtotal numeric
 )
 language sql
@@ -2090,7 +2091,7 @@ create or replace function partner_profit(
   profit numeric,
   order_count bigint,
   last_sale_date date,
-  no_cost_qty bigint
+  no_cost_qty numeric
 )
 language sql
 stable
@@ -2214,7 +2215,7 @@ create or replace function partner_profit_products(
   sku text,
   name text,
   unit text,
-  sale_qty bigint,
+  sale_qty numeric,
   sale_amount numeric,
   cost numeric,
   profit numeric
@@ -2228,7 +2229,7 @@ as $$
     pr.sku,
     pr.name,
     pr.unit,
-    sum(m.qty)::bigint,
+    sum(m.qty),
     sum(m.subtotal - coalesce(m.order_discount_alloc, 0))::numeric(12,2),
     sum(coalesce(m.unit_cost, 0) * m.qty)::numeric(12,2),
     (sum(m.subtotal - coalesce(m.order_discount_alloc, 0))

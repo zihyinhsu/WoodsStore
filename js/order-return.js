@@ -36,7 +36,8 @@ function readLines() {
     const rawQty = Number(tr.querySelector('.rt-qty').value) || 0;
     const priceText = tr.querySelector('.rt-price').value.trim();
     const rawPrice = priceText === '' ? NaN : Number(priceText);
-    const qty = clamp(Math.trunc(rawQty), 0, returnable);
+    // 數量可帶兩位小數（坪數，patch-031），多出的位數收斂到分，與 DB 欄位精度一致。
+    const qty = clamp(round2(rawQty), 0, returnable);
     // 單價清空時改回原單單價，而不是 0：0 元退貨是少數情況，應該由使用者明確輸入 0。
     const price = Number.isFinite(rawPrice) ? round2(clamp(rawPrice, 0, maxPrice)) : maxPrice;
     // 明細折扣 % 沿用原單、不可改（DB 同樣不接受），所以這裡直接讀原單那一列。
@@ -117,7 +118,7 @@ function renderLineRows(lines) {
         <td class="num rt-original">${original}</td>
         <td class="num rt-returned">${returned}</td>
         <td class="num rt-returnable">${returnable}</td>
-        <td><input type="number" class="form-control rt-qty" min="0" max="${returnable}" step="1" value="0"
+        <td><input type="number" class="form-control rt-qty" min="0" max="${returnable}" step="0.01" value="0"
                    ${returnable === 0 ? 'disabled' : ''} aria-label="退貨數量"></td>
         <td><input type="number" class="form-control rt-price" min="0" max="${escapeHtml(item.unit_price)}" step="any"
                    value="${escapeHtml(item.unit_price)}" ${returnable === 0 ? 'disabled' : ''} aria-label="退貨單價"></td>
@@ -150,13 +151,13 @@ export async function openReturnModal(order) {
 
     const returnedQty = new Map();
     for (const row of returnedRes.data || []) {
-      returnedQty.set(row.return_of_item_id, (returnedQty.get(row.return_of_item_id) || 0) + Math.abs(row.qty));
+      returnedQty.set(row.return_of_item_id, round2((returnedQty.get(row.return_of_item_id) || 0) + Math.abs(row.qty)));
     }
 
     const lines = (itemsRes.data || []).map(item => {
       const original = Math.abs(item.qty);
       const returned = returnedQty.get(item.id) || 0;
-      return { item, original, returned, returnable: Math.max(original - returned, 0) };
+      return { item, original, returned, returnable: Math.max(round2(original - returned), 0) };
     });
 
     if (!lines.some(l => l.returnable > 0)) {

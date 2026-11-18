@@ -848,7 +848,7 @@ function addLineItem() {
       ${productsCache.map(p => `<option value="${escapeHtml(p.id)}" data-cost="${escapeHtml(p.cost)}" data-price="${escapeHtml(p.price)}" data-stock="${escapeHtml(p.stock_qty)}" data-spec="${escapeHtml(p.spec || '')}" data-unit="${escapeHtml(p.unit || '')}">${escapeHtml(p.name)} (庫存: ${escapeHtml(p.stock_qty)})</option>`).join('')}
     </select>
     <div class="line-spec-unit text-muted" style="font-size: 0.9rem; padding: 0.5rem;">-</div>
-    <input type="number" class="form-control line-qty" min="1" value="1" required>
+    <input type="number" class="form-control line-qty" min="0.01" step="0.01" value="1" required>
     <input type="number" class="form-control line-price price-col" min="0" step="any" value="0" required>
     <input type="number" class="form-control line-discount price-col" min="0" max="100" value="0">
     <div class="line-subtotal price-col" style="padding: 0.5rem; font-weight: 500;">NT$ 0</div>
@@ -1081,7 +1081,8 @@ async function saveOrder(status = 'confirmed') {
     if (productId) {
       items.push({
         product_id: productId,
-        qty: parseInt(row.querySelector('.line-qty').value) || 0,
+        // 不能用 parseInt：坪數 5.04 會被截成 5，畫面小計卻是照 5.04 算的。
+        qty: round2(row.querySelector('.line-qty').value),
         unit_price: round2(row.querySelector('.line-price').value),
         discount: parseFloat(row.querySelector('.line-discount').value) || 0
       });

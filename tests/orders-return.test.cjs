@@ -329,9 +329,11 @@ async function setLine(page, itemId, { qty, price }) {
   // 單價超過原價：夾回原價
   await setLine(page, 'i-1', { price: 150 });
   r.check('單價超過原價夾回 100', await lineRow(page, 'i-1').locator('.rt-price').inputValue(), '100');
-  // 小數數量不可被默默截掉：要改回整數讓使用者看見
+  // 數量可帶兩位小數（坪數，patch-031）；超過兩位不可被默默收斂，要改回送出的值讓使用者看見
   await setLine(page, 'i-1', { qty: 2.5 });
-  r.check('小數數量改回整數', await lineRow(page, 'i-1').locator('.rt-qty').inputValue(), '2');
+  r.check('兩位小數數量保留', await lineRow(page, 'i-1').locator('.rt-qty').inputValue(), '2.5');
+  await setLine(page, 'i-1', { qty: 2.567 });
+  r.check('超過兩位小數改回 2.57', await lineRow(page, 'i-1').locator('.rt-qty').inputValue(), '2.57');
   // 清空單價不可變成 0 元退貨：改回原價
   await setLine(page, 'i-1', { qty: 3, price: '' });
   r.check('清空單價改回原價', await lineRow(page, 'i-1').locator('.rt-price').inputValue(), '100');
