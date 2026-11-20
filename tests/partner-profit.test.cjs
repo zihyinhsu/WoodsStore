@@ -124,7 +124,7 @@ const profitRows = page => page.$$eval('#partner-profit-table tbody tr', rows =>
     await page.click('#partner-profit-modal .btn-quick-date[data-range="all"]');
     await page.waitForTimeout(2500);
     r.check('改區間後標題不變', await page.locator('#partner-profit-title').innerText(), title);
-    r.check('改區間後仍為累計', await page.inputValue('#partner-profit-modal .profit-date-from'), '');
+    r.check('改區間後仍為累計', await page.inputValue('#partner-profit-modal .range-date-from'), '');
 
     await page.click('#partner-profit-modal .close-btn');
     await page.waitForTimeout(300);

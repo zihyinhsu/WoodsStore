@@ -11,9 +11,15 @@ import {
   fetchPartnerProfitRanking
 } from './partner-profit.js';
 import { openPartnerProfitModal } from './partner-profit-modal.js';
+import {
+  SUPPLIER_PAGE_SIZE,
+  fetchSupplierPurchasePage,
+  fetchSupplierPurchaseTotals
+} from './supplier-purchase.js';
+import { openSupplierPurchaseModal } from './supplier-purchase-modal.js';
 import { showToast, renderPagination, setupResponsiveTable } from './ui.js';
 import { requireAuth } from './auth.js';
-import { formatCurrency, dateRange, debounce, totalPages, escapeHtml } from './utils.js';
+import { formatCurrency, formatDate, dateRange, debounce, totalPages, escapeHtml, negativeClass } from './utils.js';
 
 const dateFrom = document.getElementById('cost-date-from');
 const dateTo = document.getElementById('cost-date-to');
@@ -32,6 +38,12 @@ let profitTotal = 0;
 let profitKeyword = '';
 // 清單與排行圖各自可能有在途請求（改關鍵字、翻頁、重查），只有最後一次能寫進畫面。
 let profitRequestSeq = 0;
+
+// 供應商進貨清單：與客戶毛利同一套規則（自己的關鍵字、共用日期區間、只讓最後一次請求寫畫面）。
+let supplierPage = 1;
+let supplierTotal = 0;
+let supplierKeyword = '';
+let supplierRequestSeq = 0;
 
 // 圖表顏色直接取 DESIGN.md 的 CSS 變數，配色改一處就同步：
 // 正毛利沿用收益的 success 綠、負毛利沿用 danger 紅。
@@ -343,7 +355,94 @@ async function loadProfitPage() {
   }
 }
 
-// 客戶毛利 / 商品明細兩個 tab 共用上方的查詢列，切 tab 只換面板不重打 RPC。
+function renderSupplierTable(rows) {
+  const tbody = document.querySelector('#supplier-purchase-table tbody');
+
+  if (rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">此期間沒有供應商進貨紀錄</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(row => {
+    const counts = row.returnCount > 0
+      ? `${row.orderCount} 張進貨、${row.returnCount} 張退出`
+      : `${row.orderCount} 張單`;
+
+    return `
+      <tr class="clickable-row" data-id="${row.partnerId}" title="查看此供應商的進貨明細">
+        <td>
+          ${escapeHtml(row.name)}
+          <div class="text-muted cost-sku">${escapeHtml(row.partnerNo || '')} ‧ ${counts}</div>
+        </td>
+        <td class="num">${formatCurrency(row.purchaseAmount)}</td>
+        <td class="num ${negativeClass(row.returnAmount)}">${formatCurrency(row.returnAmount)}</td>
+        <td class="num ${negativeClass(row.netAmount)}">${formatCurrency(row.netAmount)}</td>
+        <td>${row.lastPurchaseDate ? formatDate(row.lastPurchaseDate) : '-'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  tbody.querySelectorAll('.clickable-row').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const row = rows.find(r => r.partnerId === tr.getAttribute('data-id'));
+      // 同客戶毛利 modal：沿用目前查詢的區間，同一頁面只有一種「期間」。
+      if (row) openSupplierPurchaseModal(row.partnerId, row.name, { from: dateFrom.value, to: dateTo.value });
+    });
+  });
+}
+
+function renderSupplierSummary(totals) {
+  const el = document.getElementById('supplier-purchase-summary');
+  // 合計來自 supplier_purchase_summary（對 supplier_purchase 加總），與清單恆等。
+  el.innerHTML = `
+    ${totals.supplierCount} 家供應商 ‧
+    進貨 <span class="value">${formatCurrency(totals.purchaseAmount)}</span> ‧
+    退出 <span class="value ${negativeClass(totals.returnAmount)}">${formatCurrency(totals.returnAmount)}</span> ‧
+    淨進貨 <span class="value">${formatCurrency(totals.netAmount)}</span>
+  `;
+  el.hidden = false;
+}
+
+async function loadSupplierPage() {
+  const from = dateFrom.value;
+  const to = dateTo.value;
+
+  const requestId = ++supplierRequestSeq;
+  const isStale = () => requestId !== supplierRequestSeq;
+
+  try {
+    const [{ rows, total }, totals] = await Promise.all([
+      fetchSupplierPurchasePage({ from, to, keyword: supplierKeyword, page: supplierPage }),
+      fetchSupplierPurchaseTotals(from, to, supplierKeyword)
+    ]);
+
+    if (isStale()) return;
+
+    supplierTotal = total;
+    renderSupplierTable(rows);
+    renderSupplierSummary(totals);
+    renderPagination({
+      page: supplierPage,
+      total,
+      pageSize: SUPPLIER_PAGE_SIZE,
+      unit: '家供應商',
+      pageInfoId: 'supplier-purchase-list-page-info',
+      prevId: 'btn-supplier-purchase-list-prev',
+      nextId: 'btn-supplier-purchase-list-next'
+    });
+  } catch (error) {
+    console.error('Error loading supplier purchases:', error);
+    if (isStale()) return;
+
+    // 最常見的原因是資料庫還沒套用 patch-032（RPC 不存在），訊息要看得出是哪裡的問題。
+    document.querySelector('#supplier-purchase-table tbody').innerHTML =
+      `<tr><td colspan="5" class="empty-state text-danger">載入失敗：${escapeHtml(error.message)}</td></tr>`;
+    document.getElementById('supplier-purchase-summary').hidden = true;
+    showToast('載入供應商進貨失敗: ' + error.message, 'error');
+  }
+}
+
+// 三個 tab 共用上方的查詢列，切 tab 只換面板不重打 RPC。
 function selectCostView(view) {
   if (view === costView) return;
   costView = view;
@@ -412,12 +511,14 @@ function runSearch() {
     return;
   }
 
-  // 換區間等於換一組資料，兩份清單的頁碼都必須歸 1，
+  // 換區間等於換一組資料，每份清單的頁碼都必須歸 1，
   // 否則停在第 3 頁時改區間會落在新結果的空白頁。
   costPage = 1;
   profitPage = 1;
+  supplierPage = 1;
   loadCostPage();
   loadProfitPage();
+  loadSupplierPage();
   loadProfitChart(from, to);
 }
 
@@ -431,6 +532,7 @@ async function loadDashboard() {
       loadMonthlySummary(range),
       loadCostPage(),
       loadProfitPage(),
+      loadSupplierPage(),
       loadProfitChart(range.from, range.to)
     ]);
   } catch (error) {
@@ -442,6 +544,7 @@ async function loadDashboard() {
 requireAuth(() => {
   setupResponsiveTable('#cost-table');
   setupResponsiveTable('#partner-profit-table');
+  setupResponsiveTable('#supplier-purchase-table');
   loadDashboard();
 
   btnSearch.addEventListener('click', runSearch);
@@ -483,6 +586,27 @@ requireAuth(() => {
     if (profitPage < totalPages(profitTotal, PROFIT_PAGE_SIZE)) {
       profitPage++;
       loadProfitPage();
+    }
+  });
+
+  const supplierSearch = document.getElementById('supplier-purchase-search');
+  supplierSearch.addEventListener('input', debounce(() => {
+    supplierKeyword = supplierSearch.value;
+    supplierPage = 1;
+    loadSupplierPage();
+  }, 300));
+
+  document.getElementById('btn-supplier-purchase-list-prev').addEventListener('click', () => {
+    if (supplierPage > 1) {
+      supplierPage--;
+      loadSupplierPage();
+    }
+  });
+
+  document.getElementById('btn-supplier-purchase-list-next').addEventListener('click', () => {
+    if (supplierPage < totalPages(supplierTotal, SUPPLIER_PAGE_SIZE)) {
+      supplierPage++;
+      loadSupplierPage();
     }
   });
 });

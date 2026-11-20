@@ -12,7 +12,8 @@ const SUITES = [
   'dashboard.test.cjs',
   'products-tabs.test.cjs',
   'orders-return.test.cjs',
-  'partner-profit.test.cjs'
+  'partner-profit.test.cjs',
+  'supplier-purchase.test.cjs'
 ];
 
 const run = file => new Promise(resolve => {

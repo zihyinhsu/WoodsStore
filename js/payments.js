@@ -1,6 +1,7 @@
 import { sb } from './supabase.js';
 import { showToast, openModal, closeModal, toErrorMessage, bindSubmitOnce, renderPagination, setupResponsiveTable, printSlips, setupPrintSelection } from './ui.js';
 import { requireAuth } from './auth.js';
+import { openSupplierPurchaseModal } from './supplier-purchase-modal.js';
 import { PAGE_SIZE, formatCurrency, formatAmount, formatDate, toDateInputValue, dateRange, debounce, round2, sum, groupBy, totalPages, escapeHtml, orderSearchLink, itemSummary, negativeClass, toDeduction } from './utils.js';
 
 let currentPage = 1;
@@ -247,12 +248,15 @@ function renderBalancesTable(rows) {
     return;
   }
 
+  // 供應商列可點開進貨明細；客戶那邊的毛利分析掛在總覽與往來對象頁，這裡不重複。
+  const clickable = dir().partnerType === 'supplier';
+
   // 不另列「未分配預收」：收款金額即所選單據的加總，新制不會再產生預收，
   // 舊資料殘留的部分也已算進已收款與應收餘額裡（溢付會讓餘額成為負數）。
   tbody.innerHTML = rows.map(b => {
     const balance = Number(b.balance);
     return `
-      <tr>
+      <tr${clickable ? ` class="clickable-row" data-id="${escapeHtml(b.id)}" title="查看此供應商的進貨明細"` : ''}>
         <td>${escapeHtml(b.partner_no || '-')}</td>
         <td>${escapeHtml(b.name)}</td>
         <td style="font-family: 'Roboto', sans-serif;">${formatCurrency(b.total_sales)}</td>
@@ -263,6 +267,18 @@ function renderBalancesTable(rows) {
       </tr>
     `;
   }).join('');
+
+  // 區間帶「累計」而非本月：這張表是全期間累計的帳，點開若只看本月，
+  // 會拿「本月淨進貨」去對「累計進貨總額」，看起來像資料錯了。
+  // 兩邊仍差在稅（表上含稅、視窗未稅），視窗卡片已標註口徑。
+  if (clickable) {
+    tbody.querySelectorAll('.clickable-row').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const row = rows.find(r => r.id === tr.getAttribute('data-id'));
+        if (row) openSupplierPurchaseModal(row.id, row.name, dateRange('all'));
+      });
+    });
+  }
 }
 
 function updateBalancePagination() {

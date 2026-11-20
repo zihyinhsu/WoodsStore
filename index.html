@@ -39,11 +39,13 @@
     }
     /* .cost-sku 已搬到 css/style.css：客戶毛利 modal 在往來對象頁也要用同一個小字樣式。 */
     #cost-table th, #cost-table td,
-    #partner-profit-table th, #partner-profit-table td {
+    #partner-profit-table th, #partner-profit-table td,
+    #supplier-purchase-table th, #supplier-purchase-table td {
       padding: 0.75rem 0.5rem;
     }
     #cost-table .num,
-    #partner-profit-table .num {
+    #partner-profit-table .num,
+    #supplier-purchase-table .num {
       font-family: 'Roboto', sans-serif;
       text-align: left;
       white-space: nowrap;
@@ -238,6 +240,7 @@
     <div class="tabs" role="tablist" aria-label="進出貨成本分析檢視">
       <button class="tab-btn active" data-view="charts" role="tab" aria-selected="true" aria-controls="cost-panel-charts">客戶毛利</button>
       <button class="tab-btn" data-view="table" role="tab" aria-selected="false" aria-controls="cost-panel-table">商品明細</button>
+      <button class="tab-btn" data-view="suppliers" role="tab" aria-selected="false" aria-controls="cost-panel-suppliers">供應商進貨</button>
     </div>
 
     <!-- 客戶毛利：左半排行圖、右半清單。原本這裡是「進出貨趨勢」與「商品毛利排行」
@@ -330,6 +333,43 @@
 
       <p class="cost-note">
         出貨成本於確認出貨時記下、之後不變；所有金額皆已扣整單折讓、未加稅，與上方卡片同一口徑。
+      </p>
+    </div>
+
+    <!-- 供應商進貨：回答「本月進貨成本花在哪幾家」。進貨沒有毛利可談，不配排行圖，表格佔滿整個面板。 -->
+    <div class="glass-card tab-panel" id="cost-panel-suppliers" data-view-panel="suppliers" role="tabpanel" hidden>
+      <div class="partner-profit-head">
+        <h4 class="cost-chart-title">供應商進貨</h4>
+        <input type="search" id="supplier-purchase-search" class="form-control" placeholder="供應商／編號／統編...">
+      </div>
+      <div class="table-responsive">
+        <table id="supplier-purchase-table">
+          <thead>
+            <tr>
+              <th>供應商</th>
+              <th>進貨</th>
+              <th>進貨退出</th>
+              <th>淨進貨</th>
+              <th>最後進貨日</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="5" class="empty-state">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="partner-profit-summary" id="supplier-purchase-summary" hidden></div>
+
+      <div class="pagination">
+        <button class="btn btn-outline" id="btn-supplier-purchase-list-prev" disabled>上一頁</button>
+        <span id="supplier-purchase-list-page-info">-</span>
+        <button class="btn btn-outline" id="btn-supplier-purchase-list-next" disabled>下一頁</button>
+      </div>
+
+      <p class="cost-note">
+        點供應商可看逐筆進貨明細。金額未稅、已扣整單折讓，進貨退出以負數扣回，與上方「本月進貨成本」同一口徑；
+        未指定供應商的進貨單不屬於任何一家，因此合計可能小於卡片。
       </p>
     </div>
   </div>

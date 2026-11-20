@@ -1,5 +1,5 @@
 import { sb } from './supabase.js';
-import { PAGE_SIZE } from './utils.js';
+import { PAGE_SIZE, toDateParam } from './utils.js';
 
 // 分頁筆數全站一致，直接沿用 utils.js 的 PAGE_SIZE，不另外宣告數字。
 // 這兩個名稱保留是為了讓呼叫端讀起來知道分的是哪一種資料。
@@ -79,12 +79,6 @@ export async function fetchCostRanking(from, to, limit = 5) {
     name: row.name,
     estimatedProfit: Number(row.estimated_profit)
   }));
-}
-
-// 日期沒填代表「累計」（不限該側）。傳空字串給 date 參數 Postgres 會直接報錯，
-// 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
-function toDateParam(value) {
-  return value || null;
 }
 
 export async function fetchProductCostSummary(productId, from, to) {

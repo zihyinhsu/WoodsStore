@@ -6,24 +6,12 @@
 // 這裡只做型別轉換：Postgres numeric 經 REST 回來是字串，直接拿去運算會變字串相接。
 // ============================================================
 import { sb } from './supabase.js';
-import { PAGE_SIZE } from './utils.js';
+import { PAGE_SIZE, toDateParam, toKeywordParam } from './utils.js';
 
 export const PROFIT_PAGE_SIZE = PAGE_SIZE;
 
 // 排行圖取毛利最高／最低各幾名（RPC 的 p_limit），與總覽原本的商品排行同一個數字。
 export const PROFIT_RANKING_LIMIT = 5;
-
-// 日期沒填代表「累計」（不限該側）。傳空字串給 date 參數 Postgres 會直接報錯，
-// 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
-function toDateParam(value) {
-  return value || null;
-}
-
-// 關鍵字同理：空字串與 null 在 SQL 端都視為不篩選，統一在這裡收斂。
-function toKeywordParam(value) {
-  const keyword = (value || '').trim();
-  return keyword || null;
-}
 
 function toProfitRow(row) {
   const saleAmount = Number(row.sale_amount) || 0;

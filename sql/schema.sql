@@ -540,7 +540,10 @@ select
   o.partner_id,
   o.id as order_id,
   -- patch-030 追加：進出貨方向。報表篩 flow = 'sale'，銷貨退回自動扣掉出貨，不必各處列舉類型。
-  case when o.type in ('sale', 'sale_return') then 'sale' else 'purchase' end as flow
+  case when o.type in ('sale', 'sale_return') then 'sale' else 'purchase' end as flow,
+  -- patch-032 追加：供應商進貨 modal 要列到明細層級（品名、單價），又得沿用上面這套折讓分攤，
+  -- 另寫一份分攤算式就會出現兩個「進貨金額」。
+  oi.id as item_id
 from orders o
 join order_items oi on oi.order_id = o.id
 where o.status = 'confirmed'
@@ -2241,6 +2244,157 @@ as $$
     and (p_from is null or m.order_date >= p_from)
     and (p_to   is null or m.order_date <= p_to)
   group by pr.id, pr.sku, pr.name, pr.unit;
+$$;
+
+-- ----------------------------------------
+-- 5.7 供應商進貨（patch-032）
+-- 口徑與總覽卡片「本月進貨成本」（product_cost_analysis_summary）一致：未稅、已扣分攤整單折讓，
+-- 進貨退出以負數併入。供應商淨進貨合計與卡片的差額只有兩種：
+-- 未指定供應商的進貨單，以及逐供應商進位到分的尾差。
+-- 權限由第 7 節的 grant all on all routines 統一處理，這裡不另外寫。
+-- ----------------------------------------
+
+-- 逐供應商進貨（一供應商一列；排序與分頁交給前端，同 partner_profit）
+-- 只回期間內有進貨或進貨退出的供應商。只有退出、沒有進貨的供應商淨額為負，保留：那就是該期的真實數字。
+-- order_count、last_purchase_date 只算 type = 'purchase'，否則「最後進貨日」會變成退貨日。
+-- 淨額由兩個已進位的欄位相加，而不是另外 sum 一次：清單上「進貨 + 退出 = 淨額」必須逐列對得起來。
+create or replace function supplier_purchase(
+  p_from date default null,
+  p_to date default null,
+  p_keyword text default null,
+  p_partner_id uuid default null
+) returns table (
+  partner_id uuid,
+  partner_no text,
+  name text,
+  purchase_amount numeric,
+  return_amount numeric,
+  net_amount numeric,
+  order_count bigint,
+  return_count bigint,
+  last_purchase_date date
+)
+language sql
+stable
+security invoker
+as $$
+  with params as (
+    select nullif(btrim(coalesce(p_keyword, '')), '') as keyword
+  ),
+  pattern as (
+    -- 與 get_partner_balances、partner_profit 同一段跳脫寫法。
+    select
+      case
+        when pm.keyword is null then null
+        else '%' || replace(replace(replace(pm.keyword, '\', '\\'), '%', '\%'), '_', '\_') || '%'
+      end as like_pattern
+    from params pm
+  ),
+  agg as (
+    select
+      m.partner_id,
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0))
+        filter (where m.type = 'purchase'), 0)::numeric(12,2)        as purchase_amount,
+      coalesce(sum(m.subtotal - coalesce(m.order_discount_alloc, 0))
+        filter (where m.type = 'purchase_return'), 0)::numeric(12,2) as return_amount,
+      count(distinct m.order_id) filter (where m.type = 'purchase')        as order_count,
+      count(distinct m.order_id) filter (where m.type = 'purchase_return') as return_count,
+      max(m.order_date)          filter (where m.type = 'purchase')        as last_purchase_date
+    from product_movement_base m
+    where m.flow = 'purchase'
+      and m.partner_id is not null
+      and (p_partner_id is null or m.partner_id = p_partner_id)
+      and (p_from is null or m.order_date >= p_from)
+      and (p_to   is null or m.order_date <= p_to)
+    group by m.partner_id
+  )
+  select
+    p.id,
+    p.partner_no,
+    p.name,
+    a.purchase_amount,
+    a.return_amount,
+    (a.purchase_amount + a.return_amount)::numeric(12,2),
+    a.order_count,
+    a.return_count,
+    a.last_purchase_date
+  from agg a
+  join partners p on p.id = a.partner_id and p.type = 'supplier'
+  cross join pattern pt
+  where pt.like_pattern is null
+    or p.partner_no           ilike pt.like_pattern escape '\'
+    or p.name                 ilike pt.like_pattern escape '\'
+    or coalesce(p.tax_id, '') ilike pt.like_pattern escape '\';
+$$;
+
+-- 供應商進貨的期間合計。直接對 supplier_purchase 加總，與清單恆等（同 partner_profit_summary）。
+create or replace function supplier_purchase_summary(
+  p_from date default null,
+  p_to date default null,
+  p_keyword text default null
+) returns table (
+  purchase_amount numeric,
+  return_amount numeric,
+  net_amount numeric,
+  supplier_count bigint
+)
+language sql
+stable
+security invoker
+as $$
+  select
+    coalesce(sum(sp.purchase_amount), 0)::numeric(12,2),
+    coalesce(sum(sp.return_amount), 0)::numeric(12,2),
+    coalesce(sum(sp.net_amount), 0)::numeric(12,2),
+    count(*)
+  from supplier_purchase(p_from, p_to, p_keyword) sp;
+$$;
+
+-- 單一供應商的進貨明細（modal 下方；前端分頁）
+-- amount 是本列扣掉分攤整單折讓後的金額，與上方彙總同一口徑；
+-- 逐列進位到分，整單有折讓時各列加總可能與彙總差一兩分，彙總以 supplier_purchase 為準。
+-- 排序在前端指定（function inline 後內部 ORDER BY 不保證留存，見 product_cost_movements）。
+create or replace function supplier_purchase_items(
+  p_partner_id uuid,
+  p_from date default null,
+  p_to date default null
+) returns table (
+  item_id uuid,
+  order_no text,
+  order_date date,
+  type text,
+  product_id uuid,
+  sku text,
+  name text,
+  unit text,
+  qty numeric,
+  unit_price numeric,
+  amount numeric
+)
+language sql
+stable
+security invoker
+as $$
+  select
+    m.item_id,
+    o.order_no,
+    m.order_date,
+    m.type,
+    pr.id,
+    pr.sku,
+    pr.name,
+    pr.unit,
+    m.qty,
+    oi.unit_price,
+    (m.subtotal - coalesce(m.order_discount_alloc, 0))::numeric(12,2)
+  from product_movement_base m
+  join orders o       on o.id = m.order_id
+  join order_items oi on oi.id = m.item_id
+  join products pr    on pr.id = m.product_id
+  where m.flow = 'purchase'
+    and m.partner_id = p_partner_id
+    and (p_from is null or m.order_date >= p_from)
+    and (p_to   is null or m.order_date <= p_to);
 $$;
 
 -- ----------------------------------------

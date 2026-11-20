@@ -175,3 +175,15 @@ export function groupBy(rows, key) {
 export function totalPages(total, pageSize = PAGE_SIZE) {
   return Math.ceil(total / pageSize) || 1;
 }
+
+// RPC 的日期參數。日期沒填代表「累計」（不限該側）；傳空字串給 date 參數 Postgres 會直接報錯，
+// 因此一律轉成 null，由 SQL 端的 `p_from is null or ...` 判斷。
+export function toDateParam(value) {
+  return value || null;
+}
+
+// RPC 的關鍵字參數。空字串與空白在 SQL 端都視為不篩選，統一在這裡收斂成 null。
+export function toKeywordParam(value) {
+  const keyword = (value || '').trim();
+  return keyword || null;
+}
