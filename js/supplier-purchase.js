@@ -77,14 +77,16 @@ export async function fetchSupplierPurchaseDetail(partnerId, from, to) {
   return data?.[0] ? toSupplierRow(data[0]) : null;
 }
 
-export async function fetchSupplierPurchaseItems({ partnerId, from, to, page }) {
+// keyword 篩單號／品名／商品編號（patch-033），只作用在明細，不影響上方卡片。
+export async function fetchSupplierPurchaseItems({ partnerId, from, to, keyword, page }) {
   const offset = (page - 1) * SUPPLIER_PAGE_SIZE;
 
   const { data, count, error } = await sb
     .rpc('supplier_purchase_items', {
       p_partner_id: partnerId,
       p_from: toDateParam(from),
-      p_to: toDateParam(to)
+      p_to: toDateParam(to),
+      p_keyword: toKeywordParam(keyword)
     }, { count: 'exact' })
     // 排序寫在這裡而非 SQL function 內：function 被 inline 之後內部的 ORDER BY 不保證留存。
     // item_id 是決勝鍵，同一張單的多列才不會在翻頁時重複或漏列。

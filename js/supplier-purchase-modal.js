@@ -43,9 +43,12 @@ function renderCards({ detail, outstanding }) {
   `;
 }
 
-function renderItems(rows) {
+function renderItems(rows, keyword) {
   if (rows.length === 0) {
-    return '<div class="empty-state">此區間沒有進貨紀錄</div>';
+    // 有關鍵字時要講清楚是「沒搜到」，否則上方卡片有金額、下方卻說沒有紀錄，看起來像資料錯。
+    return keyword.trim()
+      ? '<div class="empty-state">找不到符合關鍵字的進貨明細</div>'
+      : '<div class="empty-state">此區間沒有進貨紀錄</div>';
   }
 
   const body = rows.map(row => {
@@ -85,10 +88,11 @@ function renderItems(rows) {
 }
 
 // 三支各自獨立：彙總掃全區間只回一列、明細只取當頁、餘額是另一套口徑的既有 RPC。
-async function render({ from, to, page }) {
+// 關鍵字只篩明細：卡片回答的是「這段期間跟這家買了多少」，不隨搜尋變動。
+async function render({ from, to, keyword, page }) {
   const [detail, items, outstanding] = await Promise.all([
     fetchSupplierPurchaseDetail(partnerId, from, to),
-    fetchSupplierPurchaseItems({ partnerId, from, to, page }),
+    fetchSupplierPurchaseItems({ partnerId, from, to, keyword, page }),
     fetchSupplierOutstanding(partnerId)
   ]);
 
@@ -97,7 +101,7 @@ async function render({ from, to, page }) {
     html: `
       ${renderCards({ detail, outstanding })}
       <h5 class="partner-profit-subtitle">進貨明細</h5>
-      ${renderItems(items.rows)}
+      ${renderItems(items.rows, keyword)}
       <p class="text-muted cost-sku">金額已扣分攤的整單折讓、未加稅；整單有折讓時逐列進位，加總可能與上方差一兩分。</p>
     `
   };
@@ -108,6 +112,7 @@ const modal = createRangeModal({
   pageSize: SUPPLIER_PAGE_SIZE,
   unit: '筆明細',
   errorLabel: '載入供應商進貨失敗',
+  searchPlaceholder: '搜尋進貨明細：單號／品名／商品編號...',
   render
 });
 

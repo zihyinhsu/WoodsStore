@@ -8,7 +8,7 @@
 // markup 由本模組動態注入，不寫進各頁 HTML：同一個 modal 會在總覽與往來對象兩頁出現。
 // ============================================================
 import { openModal, renderPagination, showToast, toErrorMessage } from './ui.js';
-import { escapeHtml, dateRange, totalPages, clamp } from './utils.js';
+import { escapeHtml, dateRange, totalPages, clamp, debounce } from './utils.js';
 
 /**
  * @param {object} options
@@ -16,11 +16,12 @@ import { escapeHtml, dateRange, totalPages, clamp } from './utils.js';
  * @param {number} options.pageSize   下方明細的每頁筆數
  * @param {string} options.unit       分頁列的單位文案（「項商品」「筆明細」）
  * @param {string} options.errorLabel 載入失敗 toast 的前綴（「載入客戶毛利失敗」）
- * @param {(query: {from: string, to: string, page: number}) => Promise<{html: string, total: number}>} options.render
+ * @param {string} [options.searchPlaceholder] 有給才顯示關鍵字搜尋框，值以 query.keyword 傳給 render
+ * @param {(query: {from: string, to: string, keyword: string, page: number}) => Promise<{html: string, total: number}>} options.render
  *        依區間與頁碼取資料、回傳要放進內容區的 HTML 與明細總筆數。HTML 裡的使用者輸入須自行跳脫。
  * @returns {{open: (title: string, range?: {from?: string, to?: string}) => void}}
  */
-export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
+export function createRangeModal({ id, pageSize, unit, errorLabel, searchPlaceholder, render }) {
   const modalId = `${id}-modal`;
 
   let opened = false;
@@ -55,6 +56,8 @@ export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
             <button class="btn btn-outline btn-quick-date" data-range="last30Days" type="button">近30天</button>
             <button class="btn btn-outline btn-quick-date" data-range="all" type="button">累計</button>
           </div>
+          <!-- 搜尋框同樣放在 range-modal-content 之外：放在裡面會隨每次查詢重繪，打字打到一半就失焦。 -->
+          ${searchPlaceholder ? `<input type="search" class="form-control range-search mb-4" placeholder="${escapeHtml(searchPlaceholder)}">` : ''}
           <div class="range-modal-content">載入中...</div>
           <!-- 分頁列放在 range-modal-content 之外：該區塊每次查詢都會整個重繪，
                按鈕若放在裡面，綁定的事件監聽器會跟著舊 DOM 一起被丟掉。 -->
@@ -89,6 +92,9 @@ export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
     fromInput.addEventListener('change', reload);
     toInput.addEventListener('change', reload);
 
+    // 換關鍵字同樣要歸 1；debounce 300ms 與各頁搜尋一致。
+    modal.querySelector('.range-search')?.addEventListener('input', debounce(reload, 300));
+
     modal.querySelectorAll('.btn-quick-date').forEach(btn => {
       btn.addEventListener('click', () => {
         const range = dateRange(btn.dataset.range);
@@ -122,6 +128,7 @@ export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
     const pagination = document.getElementById(`${id}-pagination`);
     const from = modal.querySelector('.range-date-from').value;
     const to = modal.querySelector('.range-date-to').value;
+    const keyword = modal.querySelector('.range-search')?.value ?? '';
 
     content.innerHTML = '載入中...';
 
@@ -129,7 +136,7 @@ export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
     const isStale = () => requestId !== requestSeq;
 
     try {
-      const result = await render({ from, to, page });
+      const result = await render({ from, to, keyword, page });
       if (isStale()) return;
 
       total = result.total;
@@ -172,6 +179,10 @@ export function createRangeModal({ id, pageSize, unit, errorLabel, render }) {
       const fallback = dateRange('thisMonth');
       modal.querySelector('.range-date-from').value = range.from ?? fallback.from;
       modal.querySelector('.range-date-to').value = range.to ?? fallback.to;
+
+      // 換一家往來對象時清掉上一家的關鍵字，否則一打開就是被篩過的明細卻看不出原因。
+      const search = modal.querySelector('.range-search');
+      if (search) search.value = '';
 
       openModal(modalId);
       load();
